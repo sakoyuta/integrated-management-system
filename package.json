@@ -6,7 +6,7 @@
   "homepage": "https://sakoyuta.github.io/management1",
   "scripts": {
     "start": "parcel public/index.html",
-    "build": "parcel build public/index.html --dist-dir dist --public-url ./",
+    "build": "parcel build public/index.html --dist-dir dist --public-url /management1/",
     "dev": "parcel public/index.html --open",
     "deploy": "npm run build && gh-pages -d dist"
   },
