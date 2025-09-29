@@ -406,7 +406,7 @@
             );
         };
 
-        const TrainingItemCard = ({ item, repId, progress, onStatusUpdate, onAddComment, onDeleteComment, onOpenFile, isAdminMode }) => {
+        const TrainingItemCard = ({ item, repId, progress, onStatusUpdate, onAddComment, onDeleteComment, onOpenFile, onOpenEditModal, isAdminMode }) => {
             const [newComment, setNewComment] = useState('');
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
             const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
@@ -429,8 +429,21 @@
                 <div className="p-4 border rounded-lg hover:shadow-lg transition-shadow flex flex-col bg-white">
                     <div className="flex items-start justify-between mb-3">
                         <div className="flex-1">
-                            <p className="font-semibold text-gray-700">{item.name}</p>
-                            <p className="text-sm text-gray-500">{item.category}</p>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="font-semibold text-gray-700">{item.name}</p>
+                                    <p className="text-sm text-gray-500">{item.category}</p>
+                                </div>
+                                {isAdminMode && (
+                                    <button
+                                        onClick={() => onOpenEditModal(item.id)}
+                                        className="ml-2 p-1 text-gray-400 hover:text-blue-500 transition-colors"
+                                        title="PDF資料を編集"
+                                    >
+                                        <PencilIcon />
+                                    </button>
+                                )}
+                            </div>
                         </div>
                         <div className="ml-2">
                             <CircularProgress percentage={itemPercentage} size="small" />
@@ -743,6 +756,7 @@
                                             onAddComment={handleAddComment}
                                             onDeleteComment={handleDeleteComment}
                                             onOpenFile={handleOpenFile}
+                                            onOpenEditModal={handleOpenEditModal}
                                             isAdminMode={isAdminMode}
                                         />
                                     ))}
