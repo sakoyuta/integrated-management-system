@@ -5,173 +5,465 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>営業育成管理ダッシュボード</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .circular-progress {
-            width: 120px;
-            height: 120px;
-        }
-        .progress-ring {
-            transform: rotate(-90deg);
-        }
-        .progress-circle {
-            transition: stroke-dashoffset 0.5s ease;
-        }
-    </style>
+    <!-- React CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX transformation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body class="bg-gray-100 min-h-screen font-sans">
-    <!-- Header -->
-    <header class="bg-white shadow-sm">
-        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-gray-800">営業育成管理ダッシュボード</h1>
-            <button id="adminToggle" class="px-3 py-1.5 text-sm font-semibold rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300">
-                管理者モード
-            </button>
-        </div>
-    </header>
+<body>
+    <div id="root"></div>
 
-    <main class="container mx-auto px-4 py-8">
-        <!-- Legend -->
-        <div class="bg-white p-4 rounded-lg shadow-md mb-6 text-sm text-gray-700 flex flex-wrap gap-x-6 gap-y-2 items-center">
-            <h3 class="font-bold w-full mb-2 md:w-auto md:mb-0">【凡例】</h3>
-            <span><strong class="text-green-500 text-base">◎</strong> : 部門長のロープレ合格済</span>
-            <span><strong class="text-yellow-500 text-base">△</strong> : ロープレができる状態だが不合格</span>
-            <span><strong class="text-red-500 text-base">✖</strong> : ロープレが出来ず知識が不足している状態</span>
-        </div>
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
 
-        <!-- Sales Rep Tabs -->
-        <div class="mb-6 border-b border-gray-200">
-            <nav class="-mb-px flex space-x-6 overflow-x-auto" id="repTabs">
-                <!-- Tabs will be populated by JavaScript -->
-            </nav>
-        </div>
-
-        <!-- Dashboard Content -->
-        <div class="bg-white p-6 rounded-lg shadow-md">
-            <div class="flex flex-col md:flex-row items-center justify-start p-6 border-b mb-6 rounded-t-lg bg-gray-50 gap-x-8 gap-y-6">
-                <div class="flex items-center flex-shrink-0">
-                    <div class="circular-progress relative flex items-center justify-center">
-                        <svg class="progress-ring w-full h-full">
-                            <circle class="text-gray-200" stroke="currentColor" stroke-width="10" fill="transparent" r="50" cx="60" cy="60"/>
-                            <circle id="progressCircle" class="text-blue-500 progress-circle" stroke="currentColor" stroke-width="10"
-                                    stroke-dasharray="314" stroke-dashoffset="200" stroke-linecap="round" fill="transparent" r="50" cx="60" cy="60"/>
-                        </svg>
-                        <span id="progressText" class="absolute text-2xl font-bold text-gray-700">68%</span>
-                    </div>
-                    <div class="ml-6 text-left">
-                        <h2 class="text-2xl font-bold text-gray-800">Gハウス営業マン達成度</h2>
-                        <p id="taskProgress" class="text-gray-600">14 / 21 タスク完了</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Training Items Grid -->
-            <div id="trainingGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
-                <!-- Training items will be populated by JavaScript -->
-            </div>
-        </div>
-    </main>
-
-    <script>
-        // Sample data
-        const salesReps = [
+        // Initial Data
+        const initialSalesReps = [
             { id: 'rep1', name: '德田 耕明' },
             { id: 'rep2', name: '田畑 美香' },
-            { id: 'rep3', name: '金村 晃功' }
+            { id: 'rep3', name: '金村 晃功' },
+            { id: 'rep4', name: '湯谷 憲一' },
+            { id: 'rep5', name: '光川 実緒' },
+            { id: 'rep6', name: '西村 貴裕' },
+            { id: 'rep7', name: '吉田 祐' },
+            { id: 'rep8', name: '小松 大樹' },
+            { id: 'rep9', name: '稲尾 拓慎' },
+            { id: 'rep10', name: '舟橋 裕也' },
+            { id: 'rep11', name: '髙木 徹' },
+            { id: 'rep12', name: '杉村 悠斗' },
+            { id: 'rep13', name: '葉山 一輝' },
+            { id: 'rep14', name: '阿部 澄人' },
         ];
 
-        const trainingItems = [
-            { id: 'item1', name: 'ヒアリングトーク', category: '商談スキル', status: '◎' },
-            { id: 'item2', name: '暮らしの上位概念トーク', category: '商談スキル', status: '△' },
-            { id: 'item3', name: '資金計画書説明トーク', category: '資金計画', status: '✖' },
-            { id: 'item4', name: 'スケジュール決定トーク', category: '商談スキル', status: '未着手' },
-            { id: 'item5', name: '土地トーク', category: '土地知識', status: '◎' },
-            { id: 'item6', name: '競合対策トーク', category: '商談スキル', status: '△' }
+        const initialTrainingItems = [
+            { id: 'item1', name: 'ヒアリングトーク', category: '商談スキル', documents: [] },
+            { id: 'item2', name: '暮らしの上位概念トーク', category: '商談スキル', documents: [] },
+            { id: 'item3', name: '資金計画書説明トーク', category: '資金計画', documents: [] },
+            { id: 'item4', name: 'スケジュール決定トーク', category: '商談スキル', documents: [] },
+            { id: 'item5', name: '土地トーク', category: '土地知識', documents: [] },
+            { id: 'item6', name: '競合対策トーク', category: '商談スキル', documents: [] },
+            { id: 'item7', name: '商品トーク', category: '商品知識', documents: [] },
+            { id: 'item8', name: '構造仕様トーク', category: '商品知識', documents: [] },
+            { id: 'item9', name: 'トータルコストトーク', category: '資金計画', documents: [] },
+            { id: 'item10', name: '地震対策トーク', category: '商品知識', documents: [] },
+            { id: 'item11', name: '断熱トーク', category: '商品知識', documents: [] },
+            { id: 'item12', name: '気密トーク', category: '商品知識', documents: [] },
+            { id: 'item13', name: '施工方法トーク', category: '商品知識', documents: [] },
+            { id: 'item14', name: '太陽光トーク', category: '商品知識', documents: [] },
+            { id: 'item15', name: '換気システムトーク', category: '商品知識', documents: [] },
+            { id: 'item16', name: '空気質トーク', category: '商品知識', documents: [] },
+            { id: 'item17', name: '間取りトーク', category: '設計', documents: [] },
+            { id: 'item18', name: 'デザイントーク', category: '設計', documents: [] },
+            { id: 'item19', name: '保証トーク', category: '顧客関係', documents: [] },
+            { id: 'item20', name: 'IOTトーク', category: '商品知識', documents: [] },
+            { id: 'item21', name: '補助金トーク', category: '資金計画', documents: [] },
         ];
 
-        const statusColors = {
+        const initialProgress = {
+            rep1: {
+                item1: { status: '◎', comments: [{id: 1, date: '2025-09-20', text: '素晴らしいスタートです。'}] },
+                item2: { status: '△', comments: [{id: 2, date: '2025-09-22', text: '課題の深掘りにもう一歩期待。'}] },
+                item3: { status: '✖', comments: [{id: 3, date: '2025-09-21', text: '製品知識の再確認が必要です。'}] },
+                item4: { status: '未着手', comments: [] },
+                item5: { status: '◎', comments: [] },
+                item6: { status: '△', comments: [{id: 4, date: '2025-09-25', text: '定期連絡を習慣化しましょう。'}] },
+                item7: { status: '未着手', comments: [] },
+                item8: { status: '✖', comments: [] },
+                generalComments: [{id: 1001, date: '2025-09-27', text: '全体的に順調です。特に商談スキルが伸びていますね。'}],
+            },
+            rep2: {
+                item1: { status: '◎', comments: [] },
+                item2: { status: '◎', comments: [] },
+                item3: { status: '△', comments: [{id: 5, date: '2025-09-24', text: '次回ロープレで確認します。'}] },
+                item4: { status: '△', comments: [] },
+                item5: { status: '◎', comments: [] },
+                item6: { status: '◎', comments: [{id: 6, date: '2025-09-23', text: '顧客からの評判が良いです。'}] },
+                item7: { status: '◎', comments: [] },
+                item8: { status: '◎', comments: [] },
+                generalComments: [],
+            },
+            rep3: {
+                item1: { status: '△', comments: [{id: 7, date: '2025-09-26', text: 'トークスクリプトを見直しましょう。'}] },
+                item2: { status: '✖', comments: [] },
+                item3: { status: '未着手', comments: [] },
+                item4: { status: '未着手', comments: [] },
+                item5: { status: '△', comments: [] },
+                item6: { status: '✖', comments: [] },
+                item7: { status: '未着手', comments: [] },
+                item8: { status: '✖', comments: [] },
+                generalComments: [{id: 1002, date: '2025-09-28', text: '来週のロープレに向けて、商品知識のインプットを強化してください。'}],
+            },
+        };
+
+        const STATUS_OPTIONS = ['未着手', '✖', '△', '◎'];
+        const STATUS_VALUE = { '未着手': 0, '✖': 0.1, '△': 0.5, '◎': 1 };
+        const STATUS_COLOR = {
             '未着手': { text: 'text-gray-500', bg: 'bg-gray-200' },
             '✖': { text: 'text-red-500', bg: 'bg-red-200' },
             '△': { text: 'text-yellow-500', bg: 'bg-yellow-200' },
             '◎': { text: 'text-green-500', bg: 'bg-green-200' }
         };
 
-        let currentRepIndex = 0;
+        // SVG Icons
+        const UserIcon = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+            </svg>
+        );
 
-        function initializeTabs() {
-            const tabsContainer = document.getElementById('repTabs');
-            salesReps.forEach((rep, index) => {
-                const tab = document.createElement('button');
-                tab.className = `whitespace-nowrap py-4 px-3 border-b-2 font-medium text-sm ${
-                    index === 0 ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`;
-                tab.textContent = rep.name;
-                tab.onclick = () => switchRep(index);
-                tabsContainer.appendChild(tab);
-            });
-        }
+        const BookOpenIcon = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10.21 1.21a.75.75 0 01.447.882l-1 4.5A.75.75 0 019 7.028V12.5a.75.75 0 01-1.5 0V7.028a.75.75 0 01-.658-.415l-1-4.5A.75.75 0 016.79 1.21c1.29.363 2.548.363 3.842 0zM5.5 13.5A2.5 2.5 0 008 16h4a2.5 2.5 0 002.5-2.5V8.5A2.5 2.5 0 0012 6H8a2.5 2.5 0 00-2.5 2.5v5z" />
+            </svg>
+        );
 
-        function switchRep(index) {
-            currentRepIndex = index;
-            updateTabs();
-            updateDashboard();
-        }
+        const TrashIcon = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 hover:text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+        );
 
-        function updateTabs() {
-            const tabs = document.querySelectorAll('#repTabs button');
-            tabs.forEach((tab, index) => {
-                if (index === currentRepIndex) {
-                    tab.className = 'whitespace-nowrap py-4 px-3 border-b-2 border-blue-500 text-blue-600 font-medium text-sm';
-                } else {
-                    tab.className = 'whitespace-nowrap py-4 px-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 font-medium text-sm';
+        // Components
+        const Toast = ({ message, type, onDismiss }) => {
+            if (!message) return null;
+            const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
+            useEffect(() => {
+                const timer = setTimeout(onDismiss, 5000);
+                return () => clearTimeout(timer);
+            }, [onDismiss]);
+
+            return (
+                <div className="fixed top-5 right-5 z-50">
+                    <div className={`${bgColor} text-white font-bold rounded-lg shadow-lg py-3 px-5 flex items-center`}>
+                        <span className="flex-grow">{message}</span>
+                        <button onClick={onDismiss} className="ml-4 font-light text-xl">&times;</button>
+                    </div>
+                </div>
+            );
+        };
+
+        const PasswordModal = ({ onClose, onSubmit }) => {
+            const [password, setPassword] = useState('');
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                onSubmit(password);
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" onClick={onClose}>
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                        <form onSubmit={handleSubmit}>
+                            <div className="p-6 border-b">
+                                <h3 className="text-lg font-semibold text-gray-800">管理者パスワード</h3>
+                            </div>
+                            <div className="p-6">
+                                <label htmlFor="password-input" className="block text-sm font-medium text-gray-700 mb-2">
+                                    パスワードを入力してください
+                                </label>
+                                <input
+                                    type="password"
+                                    id="password-input"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="p-4 bg-gray-50 flex justify-end space-x-3 rounded-b-lg">
+                                <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">
+                                    キャンセル
+                                </button>
+                                <button type="submit" className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
+                                    決定
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const CircularProgress = ({ percentage, size = "large" }) => {
+            const isLarge = size === "large";
+            const radius = isLarge ? 50 : 20;
+            const strokeWidth = isLarge ? 10 : 6;
+            const width = isLarge ? "w-40 h-40" : "w-12 h-12";
+            const textSize = isLarge ? "text-3xl" : "text-xs";
+            const circumference = 2 * Math.PI * radius;
+            const offset = circumference - (percentage / 100) * circumference;
+
+            return (
+                <div className={`relative flex items-center justify-center ${width}`}>
+                    <svg className="absolute w-full h-full transform -rotate-90">
+                        <circle className="text-gray-200" stroke="currentColor" strokeWidth={strokeWidth} fill="transparent" r={radius} cx="50%" cy="50%"/>
+                        <circle className="text-blue-500 transition-all duration-500" stroke="currentColor" strokeWidth={strokeWidth} strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" fill="transparent" r={radius} cx="50%" cy="50%"/>
+                    </svg>
+                    <span className={`${textSize} font-bold text-gray-700`}>{Math.round(percentage)}%</span>
+                </div>
+            );
+        };
+
+        const TrainingItemCard = ({ item, repId, progress, onStatusUpdate, onAddComment, onDeleteComment, isAdminMode }) => {
+            const [newComment, setNewComment] = useState('');
+            const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+            const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
+
+            const currentProgress = progress || { status: '未着手', comments: [] };
+            const itemPercentage = (STATUS_VALUE[currentProgress.status] || 0) * 100;
+
+            const reversedComments = useMemo(() => (currentProgress.comments || []).slice().reverse(), [currentProgress.comments]);
+            const latestComment = reversedComments[0];
+            const olderComments = reversedComments.slice(1);
+
+            const handleAddCommentClick = () => {
+                if (newComment.trim() && selectedDate) {
+                    onAddComment(repId, item.id, newComment.trim(), selectedDate);
+                    setNewComment('');
                 }
-            });
-        }
+            };
 
-        function updateDashboard() {
-            renderTrainingItems();
-        }
-
-        function renderTrainingItems() {
-            const grid = document.getElementById('trainingGrid');
-            grid.innerHTML = '';
-
-            trainingItems.forEach(item => {
-                const statusColor = statusColors[item.status];
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'p-4 border rounded-lg hover:shadow-lg transition-shadow flex flex-col bg-white';
-                itemDiv.innerHTML = `
-                    <div class="flex items-start justify-between mb-3">
-                        <div class="flex-1">
-                            <p class="font-semibold text-gray-700">${item.name}</p>
-                            <p class="text-sm text-gray-500">${item.category}</p>
+            return (
+                <div className="p-4 border rounded-lg hover:shadow-lg transition-shadow flex flex-col bg-white">
+                    <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                            <p className="font-semibold text-gray-700">{item.name}</p>
+                            <p className="text-sm text-gray-500">{item.category}</p>
+                        </div>
+                        <div className="ml-2">
+                            <CircularProgress percentage={itemPercentage} size="small" />
                         </div>
                     </div>
-                    <div class="mt-auto space-y-3">
-                        <div class="w-full bg-gray-200 rounded-full h-2.5">
-                            <div class="${statusColor.bg} h-2.5 rounded-full" style="width: ${getStatusWidth(item.status)}%"></div>
+
+                    <div className="mt-auto space-y-3">
+                        <div className="w-full bg-gray-200 rounded-full h-2.5">
+                            <div className={`${STATUS_COLOR[currentProgress.status].bg} h-2.5 rounded-full`} style={{ width: `${itemPercentage}%` }}></div>
                         </div>
-                        <select class="w-full p-2 border rounded-md ${statusColor.text}">
-                            <option value="未着手" ${item.status === '未着手' ? 'selected' : ''}>未着手</option>
-                            <option value="✖" ${item.status === '✖' ? 'selected' : ''}>✖</option>
-                            <option value="△" ${item.status === '△' ? 'selected' : ''}>△</option>
-                            <option value="◎" ${item.status === '◎' ? 'selected' : ''}>◎</option>
+                        <select
+                            value={currentProgress.status}
+                            onChange={(e) => onStatusUpdate(repId, item.id, 'status', e.target.value)}
+                            disabled={!isAdminMode}
+                            className={`w-full p-2 border rounded-md ${STATUS_COLOR[currentProgress.status].text} disabled:bg-gray-100 disabled:cursor-not-allowed`}
+                        >
+                            {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                         </select>
+
+                        <div className="space-y-2">
+                            <h4 className="text-xs font-bold text-gray-500">育成コメント履歴</h4>
+                            <div className="text-sm text-gray-700 bg-gray-50 p-2 rounded-md border">
+                                {!latestComment && <p className="text-xs text-gray-400 text-center py-4">コメントはありません。</p>}
+                                {latestComment && (
+                                    <div className="group relative pb-1">
+                                        <div className="flex justify-between items-start">
+                                            <span className="font-semibold text-gray-500 text-xs block">{latestComment.date}</span>
+                                            {isAdminMode && (
+                                                <button onClick={() => onDeleteComment(repId, item.id, latestComment.id)} className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1">
+                                                    <TrashIcon />
+                                                </button>
+                                            )}
+                                        </div>
+                                        <p className="whitespace-pre-wrap break-words">{latestComment.text}</p>
+                                    </div>
+                                )}
+                                {isHistoryExpanded && olderComments.map(c => (
+                                    <div key={c.id} className="group relative pt-2 mt-2 border-t">
+                                       <div className="flex justify-between items-start">
+                                          <span className="font-semibold text-gray-500 text-xs block">{c.date}</span>
+                                          {isAdminMode && (
+                                              <button onClick={() => onDeleteComment(repId, item.id, c.id)} className="absolute top-2 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-1">
+                                                  <TrashIcon />
+                                              </button>
+                                          )}
+                                       </div>
+                                       <p className="whitespace-pre-wrap break-words">{c.text}</p>
+                                    </div>
+                                ))}
+                                 {olderComments.length > 0 && (
+                                    <button onClick={() => setIsHistoryExpanded(!isHistoryExpanded)} className="text-xs text-blue-600 hover:underline mt-2">
+                                        {isHistoryExpanded ? '古い履歴を隠す' : `過去の履歴${olderComments.length}件を表示...`}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {isAdminMode && (
+                            <div>
+                                <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full p-2 border rounded-md text-sm text-gray-600" />
+                                <textarea placeholder="コメントを入力..." value={newComment} onChange={(e) => setNewComment(e.target.value)} className="w-full p-2 mt-2 border rounded-md text-sm text-gray-600" rows="2"></textarea>
+                                <button onClick={handleAddCommentClick} className="mt-2 w-full px-4 py-1.5 bg-gray-200 text-gray-800 text-sm rounded-md hover:bg-gray-300 disabled:opacity-50" disabled={!newComment.trim() || !selectedDate}>
+                                    コメントを追加
+                                </button>
+                            </div>
+                        )}
                     </div>
-                `;
-                grid.appendChild(itemDiv);
-            });
+                </div>
+            );
+        };
+
+        // Main App Component
+        function App() {
+            const [salesReps, setSalesReps] = useState(initialSalesReps);
+            const [trainingItems, setTrainingItems] = useState(initialTrainingItems);
+            const [progress, setProgress] = useState(initialProgress);
+            const [activeRepId, setActiveRepId] = useState(initialSalesReps.length > 0 ? initialSalesReps[0].id : null);
+            const [toast, setToast] = useState({ message: '', type: 'success' });
+            const [isAdminMode, setIsAdminMode] = useState(false);
+            const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+
+            const showToast = (message, type = 'success') => {
+                setToast({ message, type });
+            };
+            const dismissToast = () => {
+                setToast({ message: '', type: 'success' });
+            };
+
+            const calculateProgress = (repId) => {
+                const repProgress = progress[repId] || {};
+                if (trainingItems.length === 0) return 0;
+                const totalValue = trainingItems.reduce((acc, item) => acc + (STATUS_VALUE[repProgress[item.id]?.status || '未着手'] || 0), 0);
+                return (totalValue / trainingItems.length) * 100;
+            };
+
+            const getCompletedTasks = (repId) => {
+                const repProgress = progress[repId] || {};
+                const completedCount = trainingItems.filter(item => repProgress[item.id]?.status === '◎').length;
+                return `${completedCount} / ${trainingItems.length}`;
+            };
+
+            const handleStatusUpdate = (repId, itemId, field, value) => {
+                setProgress(prev => ({
+                    ...prev,
+                    [repId]: {
+                        ...prev[repId],
+                        [itemId]: {
+                            ...(prev[repId]?.[itemId] || { status: '未着手', comments: [] }),
+                            [field]: value,
+                        },
+                    },
+                }));
+            };
+
+            const handleAddComment = (repId, itemId, commentText, date) => {
+                if (!commentText || !date) return;
+                const newComment = { id: Date.now(), date, text: commentText };
+                setProgress(prev => {
+                    const currentRepProgress = prev[repId] || {};
+                    const currentItemProgress = currentRepProgress[itemId] || { status: '未着手', comments: [] };
+                    return {
+                        ...prev,
+                        [repId]: {
+                            ...currentRepProgress,
+                            [itemId]: {
+                                ...currentItemProgress,
+                                comments: [...(currentItemProgress.comments || []), newComment]
+                            }
+                        }
+                    };
+                });
+                showToast('コメントを追加しました。', 'success');
+            };
+
+            const handleDeleteComment = (repId, itemId, commentId) => {
+                setProgress(prev => {
+                    const newProgress = JSON.parse(JSON.stringify(prev));
+                    const comments = newProgress[repId]?.[itemId]?.comments;
+                    if (comments) {
+                        newProgress[repId][itemId].comments = comments.filter(c => c.id !== commentId);
+                    }
+                    return newProgress;
+                });
+                showToast('コメントを削除しました。');
+            };
+
+            const handleAdminToggle = () => {
+                if (isAdminMode) {
+                    setIsAdminMode(false);
+                    showToast('閲覧モードに切り替えました。', 'success');
+                } else {
+                    setIsPasswordModalOpen(true);
+                }
+            };
+
+            const handlePasswordSubmit = (password) => {
+                if (password === 'house06') {
+                    setIsAdminMode(true);
+                    setIsPasswordModalOpen(false);
+                    showToast('管理者モードに切り替えました。', 'success');
+                } else {
+                    showToast('パスワードが違います。', 'error');
+                }
+            };
+
+            const activeRep = salesReps.find(rep => rep.id === activeRepId);
+
+            return (
+                <div className="bg-gray-100 min-h-screen font-sans">
+                    <Toast message={toast.message} type={toast.type} onDismiss={dismissToast} />
+                    {isPasswordModalOpen && <PasswordModal onSubmit={handlePasswordSubmit} onClose={() => setIsPasswordModalOpen(false)} />}
+
+                    <header className="bg-white shadow-sm">
+                        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 className="text-2xl font-bold text-gray-800">営業育成管理ダッシュボード</h1>
+                            <button onClick={handleAdminToggle} className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-colors ${isAdminMode ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
+                                {isAdminMode ? '閲覧モードに切替' : '管理者モード'}
+                            </button>
+                        </div>
+                    </header>
+
+                    <main className="container mx-auto px-4 py-8">
+                        <div className="bg-white p-4 rounded-lg shadow-md mb-6 text-sm text-gray-700 flex flex-wrap gap-x-6 gap-y-2 items-center">
+                            <h3 className="font-bold w-full mb-2 md:w-auto md:mb-0">【凡例】</h3>
+                            <span><strong className="text-green-500 text-base">◎</strong> : 部門長のロープレ合格済</span>
+                            <span><strong className="text-yellow-500 text-base">△</strong> : ロープレができる状態だが不合格</span>
+                            <span><strong className="text-red-500 text-base">✖</strong> : ロープレが出来ず知識が不足している状態</span>
+                        </div>
+
+                        <div className="mb-6 border-b border-gray-200">
+                            <nav className="-mb-px flex space-x-6 overflow-x-auto" aria-label="Tabs">
+                                {salesReps.map((rep) => (
+                                    <button key={rep.id} onClick={() => setActiveRepId(rep.id)} className={`${activeRepId === rep.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-3 border-b-2 font-medium text-sm`}>
+                                        {rep.name}
+                                    </button>
+                                ))}
+                            </nav>
+                        </div>
+
+                        {activeRep && (
+                            <>
+                                <div className="bg-white p-6 rounded-lg shadow-md">
+                                    <div className="flex flex-col md:flex-row items-center justify-start p-6 border-b mb-6 rounded-t-lg bg-gray-50 gap-x-8 gap-y-6">
+                                        <div className="flex items-center flex-shrink-0">
+                                            <CircularProgress percentage={calculateProgress(activeRep.id)} />
+                                            <div className="ml-6 text-left">
+                                                <h2 className="text-2xl font-bold text-gray-800">Gハウス営業マン達成度</h2>
+                                                <p className="text-gray-600">{getCompletedTasks(activeRep.id)} タスク完了</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
+                                    {trainingItems.map(item => (
+                                        <TrainingItemCard
+                                            key={item.id}
+                                            item={item}
+                                            repId={activeRep.id}
+                                            progress={progress[activeRep.id]?.[item.id]}
+                                            onStatusUpdate={handleStatusUpdate}
+                                            onAddComment={handleAddComment}
+                                            onDeleteComment={handleDeleteComment}
+                                            isAdminMode={isAdminMode}
+                                        />
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                    </main>
+                </div>
+            );
         }
 
-        function getStatusWidth(status) {
-            const widths = { '未着手': 0, '✖': 10, '△': 50, '◎': 100 };
-            return widths[status] || 0;
-        }
-
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            initializeTabs();
-            updateDashboard();
-        });
+        // Render the app
+        ReactDOM.render(<App />, document.getElementById('root'));
     </script>
 </body>
 </html>
