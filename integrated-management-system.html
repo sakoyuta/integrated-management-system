@@ -447,7 +447,7 @@
           repaymentPeriod: "", loanPlan: "", handlingFee: "", groupCreditLifeInsurance: "", other: "", productSummaryLink: "",
           buildingCertIssued: "", buildingCertApplication: "", interimInspectionCert: "", completionInspectionCert: "",
           titleRegistration: "", bridgeLoan: "", constructionContract: "", additionalContract: "", exteriorContract: "",
-          fireInsuranceApplication: "", contactList: "",
+          fireInsuranceApplication: "", contactList: "", url: "",
         };
 
         const initialBankData = [
@@ -663,9 +663,8 @@
         // ==========================================
 
         const BankEditableRow = ({ label, value, onChange, placeholder, icon, onDelete, fieldKey }) => {
-          return ( <div className="grid grid-cols-3 gap-4 items-start group"> <label className="flex items-center text-sm font-semibold text-gray-700 col-span-1 mt-2"> {icon} {label} </label> <div className="col-span-2 flex gap-2"> <AutoResizeTextarea value={value} onChange={onChange} placeholder={placeholder || "詳細を入力..."} className="min-h-[40px] flex-1" /> {onDelete && <button onClick={() => onDelete(fieldKey)} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-2"><LucideIcon name="trash-2" size={16}/></button>} </div> </div> );
-        };
-
+          const isUrl = fieldKey === 'url';
+          return ( <div className="grid grid-cols-3 gap-4 items-start group"> <label className="flex items-center text-sm font-semibold text-gray-700 col-span-1 mt-2"> {icon} {label} </label> <div className="col-span-2 flex flex-col gap-2"> {isUrl && value && ( <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline text-sm flex items-center gap-1"> <LucideIcon name="external-link" size={14} /> {value} </a> )} <div className="flex gap-2"> <AutoResizeTextarea value={value} onChange={onChange} placeholder={placeholder || (isUrl ? "https://..." : "詳細を入力...")} className="min-h-[40px] flex-1" /> {onDelete && <button onClick={() => onDelete(fieldKey)} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-2"><LucideIcon name="trash-2" size={16}/></button>} </div> </div> </div> );
         const BankEditor = ({ bank, onUpdateBank, onAddDetailField, onDeleteDetailField }) => {
           const [newFieldName, setNewFieldName] = useState('');
           const [showAddField, setShowAddField] = useState(false);
@@ -690,7 +689,8 @@
               additionalContract: '追加工事請負契約書',
               exteriorContract: '外構工事請負契約書',
               fireInsuranceApplication: '火災保険申込書',
-              contactList: '担当者一覧'
+              contactList: '担当者一覧',
+              url: 'URL'
           };
 
           const details = bank.details || {};
