@@ -1670,9 +1670,13 @@
                      <Toast {...toast} onDismiss={() => setToast({ ...toast, message: '' })} />
                      <ConfirmModal {...modalState} onCancel={closeModal} />
                      <div className="max-w-7xl mx-auto">
-                         <h1 className="text-3xl font-bold text-gray-800 mb-8 flex items-center gap-2">
-                             <LucideIcon name="graduation-cap" className="text-indigo-600" size={32}/> デビュー研修一覧
-                         </h1>
+                        <div className="flex justify-between items-center mb-8">
+                            <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
+                            </h1>
+                            <button onClick={() => setIsEditMode(!isEditMode)} className={`px-4 py-2 rounded-md font-bold shadow-sm text-sm transition-all ${isEditMode ? "bg-green-600 text-white hover:bg-green-700" : "bg-blue-600 text-white hover:bg-blue-700"}`}>
+                                <LucideIcon name={isEditMode ? "check" : "edit"} size={18} className="inline mr-1" /> {isEditMode ? "編集を完了" : "編集モード"}
+                            </button>
+                        </div>
 
                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                              {['A研修 (デビュー)', 'B研修 (1.5棟/月)', 'C研修 (独り立ち)'].map(category => (
@@ -1682,10 +1686,6 @@
                                      </div>
                                      <div className="p-4 flex-1 overflow-y-auto">
                                          <div className="space-y-4">
-                                             {trainingData[category].map((item, index) => (
-                                                 <div
-                                                    key={item.id}
-                                                    className="border rounded-lg p-3 bg-gray-50 hover:shadow-sm transition-shadow cursor-move"
                                              {trainingData[category].map((item, index) => (
                                                 isEditMode ? (
                                                     <div
@@ -1708,7 +1708,6 @@
                                                             </div>
                                                             <button type="button" onClick={() => handleDeleteItem(category, item.id)} className="text-gray-400 hover:text-red-500"><LucideIcon name="trash-2" size={16}/></button>
                                                         </div>
-
                                                         <div className="space-y-2 mb-3">
                                                             {item.pdfs.map((pdf, idx) => (
                                                                 <div key={idx} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
@@ -1720,12 +1719,10 @@
                                                                 </div>
                                                             ))}
                                                         </div>
-
                                                         <label className="flex items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-blue-400 transition-colors text-xs text-gray-500 mb-3">
                                                             <LucideIcon name="upload" size={14} className="mr-1"/> 資料を追加
                                                             <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files[0] && handleUploadPdf(category, item.id, e.target.files[0])} />
                                                         </label>
-
                                                         <div className="space-y-2 mb-3">
                                                            {(item.urls || []).map((url, idx) => (
                                                                <div key={idx} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
@@ -1737,7 +1734,6 @@
                                                                </div>
                                                            ))}
                                                         </div>
-
                                                         <div className="flex items-center gap-1">
                                                            <input
                                                                type="text"
@@ -1766,7 +1762,6 @@
                                                 ) : (
                                                     <div key={item.id} className="border rounded-lg p-3 bg-white hover:shadow-sm transition-shadow">
                                                         <h3 className="font-bold text-gray-800 mb-3 text-sm">{item.title}</h3>
-
                                                         {item.pdfs.length > 0 && (
                                                             <div className="space-y-2 mb-3">
                                                                 {item.pdfs.map((pdf, idx) => (
@@ -1777,7 +1772,6 @@
                                                                 ))}
                                                             </div>
                                                         )}
-
                                                         {(item.urls || []).length > 0 && (
                                                             <div className="space-y-2">
                                                                {item.urls.map((url, idx) => (
@@ -1788,21 +1782,72 @@
                                                                ))}
                                                             </div>
                                                         )}
-
                                                         {item.pdfs.length === 0 && (item.urls || []).length === 0 && (
                                                             <p className="text-xs text-gray-400 text-center py-4">資料がありません</p>
                                                         )}
                                                     </div>
                                                 )
-                                     {isEditMode && (
                                              ))}
+                                                     </div>
+
+                                                     {/* Upload Button */}
+                                                     <label className="flex items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-blue-400 transition-colors text-xs text-gray-500 mb-3">
+                                                         <LucideIcon name="upload" size={14} className="mr-1"/> 資料を追加
+                                                         <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files[0] && handleUploadPdf(category, item.id, e.target.files[0])} />
+                                                     </label>
+
+                                                     {/* URL List */}
+                                                     <div className="space-y-2 mb-3">
+                                                        {(item.urls || []).map((url, idx) => (
+                                                            <div key={idx} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
+                                                                <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2 text-blue-500">
+                                                                    <LucideIcon name="link" size={14} className="mr-1 flex-shrink-0"/>
+                                                                    <span className="truncate">{url}</span>
+                                                                </a>
+                                                                <button onClick={() => handleDeleteUrl(category, item.id, idx)} className="text-gray-400 hover:text-red-500">×</button>
+                                                            </div>
+                                                        ))}
+                                                     </div>
+
+                                                     {/* Add URL Input */}
+                                                     <div className="flex items-center gap-1">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="https://..."
+                                                            className="flex-1 p-1.5 border rounded text-xs"
+                                                            id={`url-input-${item.id}`}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter') {
+                                                                    handleAddUrl(category, item.id, e.target.value);
+                                                                    e.target.value = '';
+                                                                }
+                                                            }}
+                                                        />
+                                                        <button
+                                                            onClick={() => {
+                                                                const input = document.getElementById(`url-input-${item.id}`);
+                                                                handleAddUrl(category, item.id, input.value);
+                                                                input.value = '';
+                                                            }}
+                                                            className="bg-gray-100 border border-gray-300 text-gray-600 p-1.5 rounded hover:bg-gray-200"
+                                                        >
+                                                            <LucideIcon name="plus" size={14} />
+                                                        </button>
+                                                     </div>
+                                                 </div>
+                                             ))}
+                                         </div>
+                                     </div>
+                                     {isEditMode && (
+                                     <div className="p-4 border-t bg-gray-50">
+                                         <button type="button" onClick={() => handleAddItem(category)} className="w-full py-2 bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-100 text-sm font-bold flex items-center justify-center">
                                              <LucideIcon name="plus" size={16} className="mr-1"/> 項目追加
                                          </button>
                                      </div>
-                                     )}
+                                 </div>
                              ))}
                          </div>
-                     </div>
+                                     )}
                  </div>
              );
         };
