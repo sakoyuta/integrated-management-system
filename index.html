@@ -94,6 +94,61 @@
             return [state, setState];
         };
 
+        // ==========================================
+        //  IndexedDB Helper Functions
+        // ==========================================
+
+        const DB_NAME = 'ghouse_videos';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'videos';
+
+        const openDB = () => {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    }
+                };
+            });
+        };
+
+        const saveVideoToDB = async (id, videoBlob) => {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.put({ id, blob: videoBlob });
+                request.onsuccess = () => resolve(id);
+                request.onerror = () => reject(request.error);
+            });
+        };
+
+        const getVideoFromDB = async (id) => {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.get(id);
+                request.onsuccess = () => resolve(request.result?.blob);
+                request.onerror = () => reject(request.error);
+            });
+        };
+
+        const deleteVideoFromDB = async (id) => {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.delete(id);
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        };
+
         const AI_SYSTEM_PROMPT = `あなたは高性能注文住宅「G HOUSE」の優秀な営業マネージャーです。`;
 
         // ==========================================
@@ -103,6 +158,41 @@
         const LucideIcon = ({ name, className, size = 20 }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); });
             return <i data-lucide={name} className={className} width={size} height={size}></i>;
+        };
+
+        const VideoPlayer = ({ videoId, className }) => {
+            const [videoURL, setVideoURL] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const loadVideo = async () => {
+                    try {
+                        const blob = await getVideoFromDB(videoId);
+                        if (blob) {
+                            const url = URL.createObjectURL(blob);
+                            setVideoURL(url);
+                        }
+                    } catch (error) {
+                        console.error('動画読み込みエラー:', error);
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+                loadVideo();
+                return () => {
+                    if (videoURL) URL.revokeObjectURL(videoURL);
+                };
+            }, [videoId]);
+
+            if (loading) {
+                return <div className="flex items-center justify-center p-4 text-gray-500 text-xs">動画を読み込み中...</div>;
+            }
+
+            if (!videoURL) {
+                return <div className="flex items-center justify-center p-4 text-red-500 text-xs">動画の読み込みに失敗しました</div>;
+            }
+
+            return <video src={videoURL} controls className={className} />;
         };
 
         const Toast = ({ message, type, onDismiss }) => {
@@ -1230,26 +1320,39 @@
             const itemPercentage = (STATUS_VALUE[currentProgress.status] || 0) * 100;
             const sortedComments = useMemo(() => (currentProgress.comments || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date)), [currentProgress.comments]);
 
-            const handleVideoSelect = (e) => {
+            const handleVideoSelect = async (e) => {
                 const file = e.target.files[0];
                 if (file && file.type.startsWith('video/')) {
-                    if (file.size > 50 * 1024 * 1024) { // 50MB制限
-                        alert('動画ファイルは50MB以下にしてください');
+                    if (file.size > 500 * 1024 * 1024) { // 500MB制限
+                        alert('動画ファイルは500MB以下にしてください');
                         return;
                     }
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                        const videoData = event.target.result;
-                        setSelectedVideo(videoData);
-                        setVideoPreview(videoData);
-                    };
-                    reader.readAsDataURL(file);
+                    const videoId = `video_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    try {
+                        await saveVideoToDB(videoId, file);
+                        const videoURL = URL.createObjectURL(file);
+                        setSelectedVideo(videoId);
+                        setVideoPreview(videoURL);
+                    } catch (error) {
+                        console.error('動画保存エラー:', error);
+                        alert('動画の保存に失敗しました');
+                    }
                 } else {
                     alert('動画ファイルを選択してください');
                 }
             };
 
-            const handleRemoveVideo = () => {
+            const handleRemoveVideo = async () => {
+                if (selectedVideo) {
+                    try {
+                        await deleteVideoFromDB(selectedVideo);
+                    } catch (error) {
+                        console.error('動画削除エラー:', error);
+                    }
+                }
+                if (videoPreview) {
+                    URL.revokeObjectURL(videoPreview);
+                }
                 setSelectedVideo(null);
                 setVideoPreview(null);
             };
@@ -1359,7 +1462,7 @@
                                                 <p className="text-gray-700 whitespace-pre-wrap">{c.text}</p>
                                                 {c.video && (
                                                     <div className="mt-2">
-                                                        <video src={c.video} controls className="w-full max-h-48 rounded border border-gray-200" />
+                                                        <VideoPlayer videoId={c.video} className="w-full max-h-48 rounded border border-gray-200" />
                                                     </div>
                                                 )}
                                             </div>
@@ -1493,8 +1596,20 @@
                  showToast("コメントを追加しました", "success");
              };
 
-             const handleDeleteComment = (repId, itemId, commentId) => {
-                 showModal("コメント削除", "本当に削除しますか？", () => {
+             const handleDeleteComment = async (repId, itemId, commentId) => {
+                 showModal("コメント削除", "本当に削除しますか？", async () => {
+                     // 削除するコメントを取得
+                     const comment = progress[repId]?.[itemId]?.comments?.find(c => c.id === commentId);
+
+                     // 動画が含まれていればIndexedDBから削除
+                     if (comment?.video) {
+                         try {
+                             await deleteVideoFromDB(comment.video);
+                         } catch (error) {
+                             console.error('動画削除エラー:', error);
+                         }
+                     }
+
                      setProgress(prev => {
                          const p = JSON.parse(JSON.stringify(prev));
                          if(p[repId] && p[repId][itemId]) {
