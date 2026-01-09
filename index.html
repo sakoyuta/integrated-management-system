@@ -157,16 +157,25 @@
 
         const LucideIcon = ({ name, className, size = 20 }) => {
             const iconRef = useRef(null);
+
             useLayoutEffect(() => {
                 if (window.lucide && iconRef.current) {
                     // 現在の要素を空にする
-                    iconRef.current.innerHTML = '';
+                    iconRef.current.textContent = '';
                     // data-lucide属性を設定
                     iconRef.current.setAttribute('data-lucide', name);
                     // アイコンを作成
                     window.lucide.createIcons();
                 }
+
+                // クリーンアップ: 要素を空にする（removeChildを使わない）
+                return () => {
+                    if (iconRef.current) {
+                        iconRef.current.textContent = '';
+                    }
+                };
             }, [name]);
+
             return <i ref={iconRef} className={className} style={{ width: size, height: size }}></i>;
         };
 
@@ -544,6 +553,7 @@
         ];
 
         const bankTemplate = {
+          bankUrl: "",
           repaymentPeriod: "", loanPlan: "", handlingFee: "", groupCreditLifeInsurance: "", other: "", productSummaryLink: "",
           buildingCertIssued: "", buildingCertApplication: "", interimInspectionCert: "", completionInspectionCert: "",
           titleRegistration: "", bridgeLoan: "", constructionContract: "", additionalContract: "", exteriorContract: "",
@@ -875,7 +885,7 @@
           return ( <div className="grid grid-cols-3 gap-4 items-start group"> <label className="flex items-center text-sm font-semibold text-gray-700 col-span-1 mt-2"> {icon} {label} </label> <div className="col-span-2 flex gap-2"> <AutoResizeTextarea value={value} onChange={onChange} placeholder={placeholder || "詳細を入力..."} className="min-h-[40px] flex-1" /> {onDelete && <button onClick={() => onDelete(fieldKey)} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-2"><LucideIcon name="trash-2" size={16}/></button>} </div> </div> );
         };
 
-        const BankEditor = ({ bank, onUpdateBank, onAddDetailField, onDeleteDetailField }) => {
+        const BankEditor = ({ bank, isEditMode, onUpdateBank, onAddDetailField, onDeleteDetailField }) => {
           const [newFieldName, setNewFieldName] = useState('');
           const [showAddField, setShowAddField] = useState(false);
 
@@ -883,6 +893,7 @@
 
           // フィールド名の日本語マッピング
           const fieldLabels = {
+              bankUrl: '銀行公式URL',
               repaymentPeriod: '返済期間',
               loanPlan: '借入プラン',
               handlingFee: '事務取扱手数料',
@@ -916,55 +927,121 @@
           };
 
           const detailFields = Object.keys(details);
+          const urlField = 'bankUrl';
+          const otherFields = detailFields.filter(f => f !== urlField);
 
-          return ( <div className="flex-1 h-full bg-white rounded-xl shadow-lg border border-gray-200 overflow-y-auto"> <div className="p-6">
-              <div className="mb-6 pb-4 border-b border-gray-200">
-                  <div className="flex items-center gap-4 mb-4">
-                      <input type="text" value={bank.name} onChange={handleNameChange} className="text-3xl font-bold text-gray-800 border-b-2 border-transparent hover:border-blue-300 focus:border-blue-500 focus:outline-none flex-1" />
-                      <select value={bank.type} onChange={handleTypeChange} className="px-3 py-2 border border-gray-300 rounded-md text-sm font-semibold">
-                          <option value="main">⭐ メインバンク</option>
-                          <option value="sub">その他</option>
-                      </select>
-                  </div>
-              </div>
-              <div className="space-y-4">
-                  {detailFields.map(fieldKey => (
-                      <BankEditableRow
-                          key={fieldKey}
-                          label={fieldLabels[fieldKey] || fieldKey}
-                          fieldKey={fieldKey}
-                          icon={<LucideIcon name="file-text" size={20} />}
-                          value={details[fieldKey]}
-                          onChange={(e) => handleDetailChange(fieldKey, e.target.value)}
-                          onDelete={onDeleteDetailField}
-                      />
-                  ))}
-
-                  {showAddField ? (
-                      <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 bg-blue-50">
-                          <div className="flex gap-2">
-                              <input
-                                  type="text"
-                                  value={newFieldName}
-                                  onChange={(e) => setNewFieldName(e.target.value)}
-                                  placeholder="新しい項目名を入力..."
-                                  className="flex-1 p-2 border border-gray-300 rounded text-sm"
-                                  onKeyDown={(e) => e.key === 'Enter' && handleAddField()}
-                                  autoFocus
-                              />
-                              <button onClick={handleAddField} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-bold">追加</button>
-                              <button onClick={() => { setShowAddField(false); setNewFieldName(''); }} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm">キャンセル</button>
-                          </div>
+          if (isEditMode) {
+              // Edit Mode
+              return ( <div className="flex-1 h-full bg-white rounded-xl shadow-lg border border-gray-200 overflow-y-auto"> <div className="p-6">
+                  <div className="mb-6 pb-4 border-b border-gray-200">
+                      <div className="flex items-center gap-4 mb-4">
+                          <input type="text" value={bank.name} onChange={handleNameChange} className="text-3xl font-bold text-gray-800 border-b-2 border-transparent hover:border-blue-300 focus:border-blue-500 focus:outline-none flex-1" />
+                          <select value={bank.type} onChange={handleTypeChange} className="px-3 py-2 border border-gray-300 rounded-md text-sm font-semibold">
+                              <option value="main">⭐ メインバンク</option>
+                              <option value="sub">その他</option>
+                          </select>
                       </div>
-                  ) : (
-                      <button onClick={() => setShowAddField(true)} className="w-full py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors flex items-center justify-center gap-2 font-semibold">
-                          <LucideIcon name="plus" size={20} /> 新しい項目を追加
-                      </button>
-                  )}
-              </div> </div> </div> );
+                  </div>
+                  <div className="space-y-4">
+                      {/* URL Field - Special treatment */}
+                      <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+                          <label className="flex items-center text-sm font-bold text-blue-800 mb-2">
+                              <LucideIcon name="link" size={20} className="mr-2" />
+                              {fieldLabels[urlField]}
+                          </label>
+                          <input
+                              type="url"
+                              value={details[urlField] || ''}
+                              onChange={(e) => handleDetailChange(urlField, e.target.value)}
+                              placeholder="https://..."
+                              className="w-full p-2 border border-blue-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                          />
+                      </div>
+
+                      {/* Other Fields */}
+                      {otherFields.map(fieldKey => (
+                          <BankEditableRow
+                              key={fieldKey}
+                              label={fieldLabels[fieldKey] || fieldKey}
+                              fieldKey={fieldKey}
+                              icon={<LucideIcon name="file-text" size={20} />}
+                              value={details[fieldKey]}
+                              onChange={(e) => handleDetailChange(fieldKey, e.target.value)}
+                              onDelete={(fKey) => onDeleteDetailField(bank.id, fKey)}
+                          />
+                      ))}
+
+                      {showAddField ? (
+                          <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 bg-blue-50">
+                              <div className="flex gap-2">
+                                  <input
+                                      type="text"
+                                      value={newFieldName}
+                                      onChange={(e) => setNewFieldName(e.target.value)}
+                                      placeholder="新しい項目名を入力..."
+                                      className="flex-1 p-2 border border-gray-300 rounded text-sm"
+                                      onKeyDown={(e) => e.key === 'Enter' && handleAddField()}
+                                      autoFocus
+                                  />
+                                  <button onClick={handleAddField} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-bold">追加</button>
+                                  <button onClick={() => { setShowAddField(false); setNewFieldName(''); }} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm">キャンセル</button>
+                              </div>
+                          </div>
+                      ) : (
+                          <button onClick={() => setShowAddField(true)} className="w-full py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors flex items-center justify-center gap-2 font-semibold">
+                              <LucideIcon name="plus" size={20} /> 新しい項目を追加
+                          </button>
+                      )}
+                  </div> </div> </div> );
+          } else {
+              // Read-only Mode
+              return ( <div className="flex-1 h-full bg-white rounded-xl shadow-lg border border-gray-200 overflow-y-auto"> <div className="p-6">
+                  <div className="mb-6 pb-4 border-b border-gray-200">
+                      <div className="flex items-center gap-4 mb-4">
+                          <h2 className="text-3xl font-bold text-gray-800 flex-1">{bank.name}</h2>
+                          <span className="px-3 py-2 bg-blue-100 text-blue-800 rounded-md text-sm font-semibold">
+                              {bank.type === 'main' ? '⭐ メインバンク' : 'その他'}
+                          </span>
+                      </div>
+                  </div>
+                  <div className="space-y-4">
+                      {/* URL Field - Special treatment with hyperlink */}
+                      {details[urlField] && (
+                          <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+                              <label className="flex items-center text-sm font-bold text-blue-800 mb-2">
+                                  <LucideIcon name="link" size={20} className="mr-2" />
+                                  {fieldLabels[urlField]}
+                              </label>
+                              <a
+                                  href={details[urlField]}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 underline hover:no-underline font-medium flex items-center gap-2 break-all"
+                              >
+                                  {details[urlField]}
+                                  <LucideIcon name="external-link" size={16} className="flex-shrink-0" />
+                              </a>
+                          </div>
+                      )}
+
+                      {/* Other Fields */}
+                      {otherFields.map(fieldKey => (
+                          <div key={fieldKey} className="grid grid-cols-3 gap-4">
+                              <label className="flex items-center text-sm font-semibold text-gray-700 col-span-1">
+                                  <LucideIcon name="file-text" size={20} />
+                                  {fieldLabels[fieldKey] || fieldKey}
+                              </label>
+                              <div className="col-span-2 text-gray-800 whitespace-pre-wrap">
+                                  {details[fieldKey] || <span className="text-gray-400">未設定</span>}
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+              </div> </div> );
+          }
         };
 
-        const BankList = ({ banks, selectedBankId, onSelectBank, searchTerm, onSearchChange, onAddBank, onDeleteBank }) => {
+        const BankList = ({ banks, selectedBankId, onSelectBank, searchTerm, onSearchChange, onAddBank, onDeleteBank, isEditMode }) => {
           const filteredBanks = banks.filter(bank => bank.name.toLowerCase().includes(searchTerm.toLowerCase()));
           const mainBanks = filteredBanks.filter(b => b.type === 'main');
           const subBanks = filteredBanks.filter(b => b.type === 'sub');
@@ -976,9 +1053,11 @@
                          <input type="text" value={searchTerm} onChange={onSearchChange} placeholder="銀行を検索..." className="w-full p-2 pl-10 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" />
                          <LucideIcon name="search" className="text-gray-400 absolute left-3 top-3" size={16} />
                      </div>
-                     <button onClick={onAddBank} className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 text-sm">
-                         <LucideIcon name="plus" size={16} /> 銀行を追加
-                     </button>
+                     {isEditMode && (
+                         <button onClick={onAddBank} className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 text-sm">
+                             <LucideIcon name="plus" size={16} /> 銀行を追加
+                         </button>
+                     )}
                  </div>
                  <div className="flex-1 overflow-y-auto">
                      {/* Main Banks */}
@@ -988,9 +1067,11 @@
                              {mainBanks.map((bank) => (
                                  <div key={bank.id} className={`group p-4 border-b border-gray-200 cursor-pointer flex items-center justify-between ${ selectedBankId === bank.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : 'hover:bg-gray-100' }`}>
                                      <h3 className={`font-medium truncate flex-1 ${selectedBankId === bank.id ? 'text-blue-800' : 'text-gray-700'}`} onClick={() => onSelectBank(bank.id)}> {bank.name} </h3>
-                                     <button onClick={(e) => { e.stopPropagation(); onDeleteBank(bank.id, bank.name); }} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1">
-                                         <LucideIcon name="trash-2" size={16} />
-                                     </button>
+                                     {isEditMode && (
+                                         <button onClick={(e) => { e.stopPropagation(); onDeleteBank(bank.id, bank.name); }} className="text-gray-400 hover:text-red-500 transition-opacity p-1">
+                                             <LucideIcon name="trash-2" size={16} />
+                                         </button>
+                                     )}
                                  </div>
                              ))}
                          </div>
@@ -1003,9 +1084,11 @@
                              {subBanks.map((bank) => (
                                  <div key={bank.id} className={`group p-4 border-b border-gray-200 cursor-pointer flex items-center justify-between ${ selectedBankId === bank.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : 'hover:bg-gray-100' }`}>
                                      <h3 className={`font-medium truncate flex-1 ${selectedBankId === bank.id ? 'text-blue-800' : 'text-gray-700'}`} onClick={() => onSelectBank(bank.id)}> {bank.name} </h3>
-                                     <button onClick={(e) => { e.stopPropagation(); onDeleteBank(bank.id, bank.name); }} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1">
-                                         <LucideIcon name="trash-2" size={16} />
-                                     </button>
+                                     {isEditMode && (
+                                         <button onClick={(e) => { e.stopPropagation(); onDeleteBank(bank.id, bank.name); }} className="text-gray-400 hover:text-red-500 transition-opacity p-1">
+                                             <LucideIcon name="trash-2" size={16} />
+                                         </button>
+                                     )}
                                  </div>
                              ))}
                          </div>
@@ -1020,7 +1103,23 @@
              const [banks, setBanks] = usePersistentState('ghouse_banks_v10', initialBankData);
              const [selectedBankId, setSelectedBankId] = useState(banks[0]?.id || null);
              const [searchTerm, setSearchTerm] = useState("");
+             const [isEditMode, setIsEditMode] = useState(false);
              const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
+
+             // 既存データにbankUrlフィールドがない場合は追加する（データ移行）
+             useEffect(() => {
+                 const needsUpdate = banks.some(bank => !bank.details.hasOwnProperty('bankUrl'));
+                 if (needsUpdate) {
+                     const updatedBanks = banks.map(bank => ({
+                         ...bank,
+                         details: {
+                             bankUrl: bank.details.bankUrl || '',
+                             ...bank.details
+                         }
+                     }));
+                     setBanks(updatedBanks);
+                 }
+             }, []);
 
              const selectedBank = banks.find(b => b.id === selectedBankId) || banks[0];
 
@@ -1067,7 +1166,7 @@
              };
 
              return (
-                 <div className="flex h-full w-full bg-gray-100">
+                 <div className="flex h-full w-full bg-gray-100 font-sans">
                      <ErrorBoundary>
                          <BankList
                              banks={banks}
@@ -1077,10 +1176,20 @@
                              onSearchChange={(e) => setSearchTerm(e.target.value)}
                              onAddBank={handleAddBank}
                              onDeleteBank={handleDeleteBank}
+                             isEditMode={isEditMode}
                          />
-                         <main className="flex-1 p-6 overflow-hidden h-full">
+                         <main className="flex-1 p-6 overflow-hidden h-full flex flex-col">
+                             <div className="flex justify-end mb-4">
+                                 <button
+                                     onClick={() => setIsEditMode(!isEditMode)}
+                                     className={`px-4 py-2 rounded text-sm font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                 >
+                                     {isEditMode ? '完了' : '編集'}
+                                 </button>
+                             </div>
                              <BankEditor
                                  bank={selectedBank}
+                                 isEditMode={isEditMode}
                                  onUpdateBank={(id, updated) => setBanks(banks.map(b => b.id === id ? updated : b))}
                                  onAddDetailField={handleAddDetailField}
                                  onDeleteDetailField={handleDeleteDetailField}
