@@ -1922,6 +1922,7 @@
              const [trainingData, setTrainingData] = usePersistentState('ghouse_debut_training_v19', initialDebutTrainingData);
              const [toast, setToast] = useState({ message: '', type: 'success' });
              const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
+             const [isEditMode, setIsEditMode] = useState(false);
 
              const showToast = (message, type) => setToast({ message, type });
              const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
@@ -2073,9 +2074,17 @@
                      <Toast {...toast} onDismiss={() => setToast({ ...toast, message: '' })} />
                      <ConfirmModal {...modalState} onCancel={closeModal} />
                      <div className="max-w-7xl mx-auto">
-                         <h1 className="text-3xl font-bold text-gray-800 mb-8 flex items-center gap-2">
-                             <LucideIcon name="graduation-cap" className="text-indigo-600" size={32}/> デビュー研修一覧
-                         </h1>
+                        <div className="flex justify-between items-center mb-8">
+                            <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
+                                <LucideIcon name="graduation-cap" className="text-indigo-600" size={32}/> デビュー研修一覧
+                            </h1>
+                            <button
+                                onClick={() => setIsEditMode(!isEditMode)}
+                                className={`px-4 py-2 rounded text-sm font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                            >
+                                {isEditMode ? '完了' : '編集'}
+                            </button>
+                        </div>
 
                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                              {['A研修 (デビュー)', 'B研修 (1.5棟/月)', 'C研修 (独り立ち)'].map(category => (
@@ -2088,23 +2097,25 @@
                                              {trainingData[category].map((item, index) => (
                                                  <div
                                                     key={item.id}
-                                                    className="border rounded-lg p-3 bg-gray-50 hover:shadow-sm transition-shadow cursor-move"
-                                                    draggable
+                                                    className={`border rounded-lg p-3 bg-gray-50 hover:shadow-sm transition-shadow ${isEditMode ? "cursor-move" : ""}`}
+                                                    draggable={isEditMode}
                                                     onDragStart={(e) => handleDragStart(e, category, index)}
                                                     onDragOver={handleDragOver}
                                                     onDrop={(e) => handleDrop(e, category, index)}
                                                  >
                                                      <div className="flex justify-between items-start mb-2">
                                                          <div className="flex items-center flex-1 mr-2">
-                                                             <LucideIcon name="grip-vertical" className="mr-2 text-gray-400 flex-shrink-0" size={16}/>
+                                                            {isEditMode && <LucideIcon name="grip-vertical" className="mr-2 text-gray-400 flex-shrink-0" size={16}/>}
                                                              <input
                                                                  type="text"
                                                                  value={item.title}
                                                                  onChange={(e) => handleUpdateTitle(category, item.id, e.target.value)}
-                                                                 className="font-bold text-gray-700 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none w-full"
+                                                                 className={`font-bold text-gray-700 bg-transparent ${isEditMode ? "" : "pointer-events-none"} border-b ${isEditMode ? "border-transparent hover:border-gray-300" : "border-transparent"} focus:border-blue-500 focus:outline-none w-full`}
                                                              />
                                                          </div>
-                                                         <button type="button" onClick={() => handleDeleteItem(category, item.id)} className="text-gray-400 hover:text-red-500"><LucideIcon name="trash-2" size={16}/></button>
+                                                        {isEditMode && (
+                                                            <button type="button" onClick={() => handleDeleteItem(category, item.id)} className="text-gray-400 hover:text-red-500"><LucideIcon name="trash-2" size={16}/></button>
+                                                        )}
                                                      </div>
 
                                                      {/* PDF List */}
@@ -2115,16 +2126,20 @@
                                                                      <LucideIcon name="file-text" size={14} className="mr-1 text-red-500 flex-shrink-0"/>
                                                                      <span className="truncate">{pdf.name}</span>
                                                                  </div>
-                                                                 <button type="button" onClick={() => handleDeletePdf(category, item.id, idx)} className="text-gray-400 hover:text-red-500">×</button>
+                                                                {isEditMode && (
+                                                                    <button type="button" onClick={() => handleDeletePdf(category, item.id, idx)} className="text-gray-400 hover:text-red-500">00d7</button>
+                                                                )}
                                                              </div>
                                                          ))}
                                                      </div>
-
-                                                     {/* Upload Button */}
-                                                     <label className="flex items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-blue-400 transition-colors text-xs text-gray-500 mb-3">
-                                                         <LucideIcon name="upload" size={14} className="mr-1"/> 資料を追加
-                                                         <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files[0] && handleUploadPdf(category, item.id, e.target.files[0])} />
-                                                     </label>
+                                                    {isEditMode && (
+                                                    
+                                                                                                         {/* Upload Button */}
+                                                                                                         <label className="flex items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-blue-400 transition-colors text-xs text-gray-500 mb-3">
+                                                                                                             <LucideIcon name="upload" size={14} className="mr-1"/> 資料を追加
+                                                                                                             <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files[0] && handleUploadPdf(category, item.id, e.target.files[0])} />
+                                                                                                         </label>
+                                                    )}
 
                                                      {/* URL List */}
                                                      <div className="space-y-2 mb-3">
@@ -2134,12 +2149,15 @@
                                                                     <LucideIcon name="link" size={14} className="mr-1 flex-shrink-0"/>
                                                                     <span className="truncate">{url}</span>
                                                                 </a>
-                                                                <button onClick={() => handleDeleteUrl(category, item.id, idx)} className="text-gray-400 hover:text-red-500">×</button>
+                                                                {isEditMode && (
+                                                                    <button onClick={() => handleDeleteUrl(category, item.id, idx)} className="text-gray-400 hover:text-red-500">00d7</button>
+                                                                )}
                                                             </div>
                                                         ))}
                                                      </div>
 
                                                      {/* Add URL Input */}
+                                                    {isEditMode && (
                                                      <div className="flex items-center gap-1">
                                                         <input
                                                             type="text"
@@ -2164,14 +2182,17 @@
                                                             <LucideIcon name="plus" size={14} />
                                                         </button>
                                                      </div>
+                                                    )}
                                                  </div>
                                              ))}
                                          </div>
                                      </div>
                                      <div className="p-4 border-t bg-gray-50">
-                                         <button type="button" onClick={() => handleAddItem(category)} className="w-full py-2 bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-100 text-sm font-bold flex items-center justify-center">
-                                             <LucideIcon name="plus" size={16} className="mr-1"/> 項目追加
-                                         </button>
+                                        {isEditMode && (
+                                                                                 <button type="button" onClick={() => handleAddItem(category)} className="w-full py-2 bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-100 text-sm font-bold flex items-center justify-center">
+                                                                                     <LucideIcon name="plus" size={16} className="mr-1"/> 項目追加
+                                                                                 </button>
+                                        )}
                                      </div>
                                  </div>
                              ))}
