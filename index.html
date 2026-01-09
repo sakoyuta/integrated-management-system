@@ -1312,6 +1312,11 @@
             const [videoPreview, setVideoPreview] = useState(null);
             const [isDescOpen, setIsDescOpen] = useState(false);
             const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+            const [editingCommentId, setEditingCommentId] = useState(null);
+            const [editingText, setEditingText] = useState('');
+            const [editingDate, setEditingDate] = useState('');
+            const [editingVideo, setEditingVideo] = useState(null);
+            const [editingVideoPreview, setEditingVideoPreview] = useState(null);
 
             // 安全装置: progress が undefined の場合を考慮、古いステータス値も正規化
             const rawProgress = progress || { status: '未着手', comments: [] };
@@ -1364,6 +1369,71 @@
                     setSelectedVideo(null);
                     setVideoPreview(null);
                     setIsHistoryOpen(true);
+                }
+            };
+
+            const handleEditClick = (comment) => {
+                setEditingCommentId(comment.id);
+                setEditingText(comment.text);
+                setEditingDate(comment.date);
+                setEditingVideo(comment.video || null);
+                setEditingVideoPreview(null);
+            };
+
+            const handleCancelEdit = async () => {
+                if (editingVideoPreview) {
+                    URL.revokeObjectURL(editingVideoPreview);
+                }
+                setEditingCommentId(null);
+                setEditingText('');
+                setEditingDate('');
+                setEditingVideo(null);
+                setEditingVideoPreview(null);
+            };
+
+            const handleEditVideoSelect = async (e) => {
+                const file = e.target.files[0];
+                if (file && file.type.startsWith('video/')) {
+                    if (file.size > 500 * 1024 * 1024) {
+                        alert('動画ファイルは500MB以下にしてください');
+                        return;
+                    }
+                    const videoId = `video_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    try {
+                        await saveVideoToDB(videoId, file);
+                        const videoURL = URL.createObjectURL(file);
+                        setEditingVideo(videoId);
+                        setEditingVideoPreview(videoURL);
+                    } catch (error) {
+                        console.error('動画保存エラー:', error);
+                        alert('動画の保存に失敗しました');
+                    }
+                }
+            };
+
+            const handleRemoveEditVideo = async () => {
+                if (editingVideo) {
+                    try {
+                        await deleteVideoFromDB(editingVideo);
+                    } catch (error) {
+                        console.error('動画削除エラー:', error);
+                    }
+                }
+                if (editingVideoPreview) {
+                    URL.revokeObjectURL(editingVideoPreview);
+                }
+                setEditingVideo(null);
+                setEditingVideoPreview(null);
+            };
+
+            const handleSaveEdit = (commentId) => {
+                if (editingText.trim() && editingDate) {
+                    onUpdateComment(repId, item.id, commentId, {
+                        text: editingText.trim(),
+                        date: editingDate,
+                        video: editingVideo
+                    });
+                    handleCancelEdit();
                 }
             };
 
@@ -1455,15 +1525,53 @@
                                     <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                                         {sortedComments.map(c => (
                                             <div key={c.id} className="bg-white p-2 rounded border border-blue-100 shadow-sm relative group">
-                                                <div className="flex justify-between items-center mb-1">
-                                                    <span className="font-bold text-blue-800">{c.date}</span>
-                                                    <button onClick={() => onDeleteComment(repId, item.id, c.id)} className="text-gray-400 hover:text-red-500"><LucideIcon name="trash-2" size={14}/></button>
-                                                </div>
-                                                <p className="text-gray-700 whitespace-pre-wrap">{c.text}</p>
-                                                {c.video && (
-                                                    <div className="mt-2">
-                                                        <VideoPlayer videoId={c.video} className="w-full max-h-48 rounded border border-gray-200" />
+                                                {editingCommentId === c.id ? (
+                                                    <div className="flex flex-col gap-2">
+                                                        <label className="text-[10px] text-gray-500 font-bold">日付</label>
+                                                        <input type="date" value={editingDate} onChange={(e) => setEditingDate(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
+                                                        <label className="text-[10px] text-gray-500 font-bold">内容</label>
+                                                        <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} className="w-full p-1.5 border rounded text-xs resize-none h-16" />
+                                                        <label className="text-[10px] text-gray-500 font-bold">動画</label>
+                                                        {editingVideo && !editingVideoPreview && (
+                                                            <div className="relative">
+                                                                <VideoPlayer videoId={editingVideo} className="w-full max-h-32 rounded border" />
+                                                                <button onClick={handleRemoveEditVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
+                                                                    <LucideIcon name="x" size={14} />
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                        {editingVideoPreview && (
+                                                            <div className="relative">
+                                                                <video src={editingVideoPreview} controls className="w-full max-h-32 rounded border" />
+                                                                <button onClick={handleRemoveEditVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
+                                                                    <LucideIcon name="x" size={14} />
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                        {!editingVideo && (
+                                                            <input type="file" accept="video/*" onChange={handleEditVideoSelect} className="w-full p-1.5 border rounded text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                                                        )}
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => handleSaveEdit(c.id)} className="flex-1 bg-green-600 text-white py-1.5 rounded text-xs font-bold hover:bg-green-700 transition-colors" disabled={!editingText.trim() || !editingDate}>保存</button>
+                                                            <button onClick={handleCancelEdit} className="flex-1 bg-gray-400 text-white py-1.5 rounded text-xs font-bold hover:bg-gray-500 transition-colors">キャンセル</button>
+                                                        </div>
                                                     </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="flex justify-between items-center mb-1">
+                                                            <span className="font-bold text-blue-800">{c.date}</span>
+                                                            <div className="flex gap-1">
+                                                                <button onClick={() => handleEditClick(c)} className="text-gray-400 hover:text-blue-500" title="編集"><LucideIcon name="edit" size={14}/></button>
+                                                                <button onClick={() => onDeleteComment(repId, item.id, c.id)} className="text-gray-400 hover:text-red-500" title="削除"><LucideIcon name="trash-2" size={14}/></button>
+                                                            </div>
+                                                        </div>
+                                                        <p className="text-gray-700 whitespace-pre-wrap">{c.text}</p>
+                                                        {c.video && (
+                                                            <div className="mt-2">
+                                                                <VideoPlayer videoId={c.video} className="w-full max-h-48 rounded border border-gray-200" />
+                                                            </div>
+                                                        )}
+                                                    </>
                                                 )}
                                             </div>
                                         ))}
@@ -1594,6 +1702,32 @@
                      return { ...prev, [repId]: { ...p, [itemId]: { ...itemP, comments: [...(itemP.comments||[]), newComment] } } };
                  });
                  showToast("コメントを追加しました", "success");
+             };
+
+             const handleUpdateComment = async (repId, itemId, commentId, updatedData) => {
+                 const oldComment = progress[repId]?.[itemId]?.comments?.find(c => c.id === commentId);
+
+                 // 古い動画があり、新しい動画IDと異なる場合は削除
+                 if (oldComment?.video && oldComment.video !== updatedData.video) {
+                     try {
+                         await deleteVideoFromDB(oldComment.video);
+                     } catch (error) {
+                         console.error('古い動画削除エラー:', error);
+                     }
+                 }
+
+                 setProgress(prev => {
+                     const p = JSON.parse(JSON.stringify(prev));
+                     if(p[repId] && p[repId][itemId]) {
+                         p[repId][itemId].comments = p[repId][itemId].comments.map(c =>
+                             c.id === commentId
+                                 ? { ...c, text: updatedData.text, date: updatedData.date, video: updatedData.video }
+                                 : c
+                         );
+                     }
+                     return p;
+                 });
+                 showToast("履歴を更新しました", "success");
              };
 
              const handleDeleteComment = async (repId, itemId, commentId) => {
@@ -1757,6 +1891,7 @@
                                                                      onStatusUpdate={handleStatusUpdate}
                                                                      onAddComment={handleAddComment}
                                                                      onDeleteComment={handleDeleteComment}
+                                                                    onUpdateComment={handleUpdateComment}
                                                                      isEditMode={isEditMode}
                                                                      onUpdateItem={handleUpdateTrainingItem}
                                                                      onDeleteItem={handleDeleteTrainingItem}
