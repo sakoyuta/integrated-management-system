@@ -10,6 +10,10 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
     <style>
         html, body, #root { height: 100%; margin: 0; }
         body { font-family: 'Inter', 'Noto Sans JP', sans-serif; background-color: #f3f4f6; }
@@ -75,6 +79,68 @@
             }
         }
 
+        // ==========================================
+        //  Firebase Configuration & Initialization
+        // ==========================================
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCxOFvB8h8ChcJJsEq7s7-hVCzbpfmkwA",
+            authDomain: "ghouse-management.firebaseapp.com",
+            databaseURL: "https://ghouse-management-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "ghouse-management",
+            storageBucket: "ghouse-management.firebasestorage.app",
+            messagingSenderId: "790035889164",
+            appId: "1:790035889164:web:e0fe2f032dd68acdb3c229",
+            measurementId: "G-8EGTWS4HZM"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const database = firebase.database();
+
+        // Firebase State Hook - Replaces usePersistentState with Firebase sync
+        const useFirebaseState = (path, initialValue) => {
+            const [state, setState] = useState(initialValue);
+            const [isLoading, setIsLoading] = useState(true);
+            const dbRef = database.ref(path);
+
+            useEffect(() => {
+                // Load initial data from Firebase
+                dbRef.once('value').then(snapshot => {
+                    const data = snapshot.val();
+                    if (data !== null) {
+                        setState(data);
+                    }
+                    setIsLoading(false);
+                }).catch(error => {
+                    console.error('Firebase load error:', error);
+                    setIsLoading(false);
+                });
+
+                // Listen for realtime updates
+                const listener = dbRef.on('value', snapshot => {
+                    const data = snapshot.val();
+                    if (data !== null) {
+                        setState(data);
+                    }
+                });
+
+                return () => dbRef.off('value', listener);
+            }, [path]);
+
+            const updateState = (newState) => {
+                setState(newState);
+                dbRef.set(newState).catch(error => {
+                    console.error('Firebase update error:', error);
+                });
+            };
+
+            return [state, updateState, isLoading];
+        };
+
+        // LocalStorage fallback for non-critical data (videos)
         const usePersistentState = (key, initialValue) => {
             const [state, setState] = useState(() => {
                 try {
@@ -833,14 +899,33 @@
         };
 
         const FlowManagementApp = () => {
-            const [flowSteps, setFlowSteps] = usePersistentState('ghouse_flow_steps_v13', initialFlowSteps.map((step, index) => ({ ...step, masterIndex: index })));
-            const [selectedStepId, setSelectedStepId] = useState(flowSteps[0]?.id || null);
+            const [flowSteps, setFlowSteps, isLoadingFlowSteps] = useFirebaseState('flowSteps', initialFlowSteps.map((step, index) => ({ ...step, masterIndex: index })));
+            const [selectedStepId, setSelectedStepId] = useState(null);
             const [draggingItem, setDraggingItem] = useState(null);
             const [dragOverItem, setDragOverItem] = useState(null);
             const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
             const [isEditMode, setIsEditMode] = useState(false);
 
+            // Set initial selected step after data loads
+            useEffect(() => {
+                if (!isLoadingFlowSteps && flowSteps.length > 0 && !selectedStepId) {
+                    setSelectedStepId(flowSteps[0]?.id);
+                }
+            }, [isLoadingFlowSteps, flowSteps, selectedStepId]);
+
             const selectedStep = flowSteps.find(s => s.id === selectedStepId);
+
+            // Show loading state
+            if (isLoadingFlowSteps) {
+                return (
+                    <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                        <div className="text-center">
+                            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
+                            <p className="text-gray-600">データを読み込み中...</p>
+                        </div>
+                    </div>
+                );
+            }
             const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
             const closeModal = () => setModalState({ ...modalState, isOpen: false });
 
@@ -1099,29 +1184,50 @@
         };
 
         const BankManagementApp = () => {
-             // Version 10: Add bank CRUD operations
-             const [banks, setBanks] = usePersistentState('ghouse_banks_v10', initialBankData);
-             const [selectedBankId, setSelectedBankId] = useState(banks[0]?.id || null);
+             // Version 11: Firebase integration for real-time sync
+             const [banks, setBanks, isLoadingBanks] = useFirebaseState('banks', initialBankData);
+             const [selectedBankId, setSelectedBankId] = useState(null);
              const [searchTerm, setSearchTerm] = useState("");
              const [isEditMode, setIsEditMode] = useState(false);
              const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
 
+             // Set initial selected bank after data loads
+             useEffect(() => {
+                 if (!isLoadingBanks && banks.length > 0 && !selectedBankId) {
+                     setSelectedBankId(banks[0]?.id);
+                 }
+             }, [isLoadingBanks, banks, selectedBankId]);
+
              // 既存データにbankUrlフィールドがない場合は追加する（データ移行）
              useEffect(() => {
-                 const needsUpdate = banks.some(bank => !bank.details.hasOwnProperty('bankUrl'));
-                 if (needsUpdate) {
-                     const updatedBanks = banks.map(bank => ({
-                         ...bank,
-                         details: {
-                             bankUrl: bank.details.bankUrl || '',
-                             ...bank.details
-                         }
-                     }));
-                     setBanks(updatedBanks);
+                 if (!isLoadingBanks && banks.length > 0) {
+                     const needsUpdate = banks.some(bank => !bank.details.hasOwnProperty('bankUrl'));
+                     if (needsUpdate) {
+                         const updatedBanks = banks.map(bank => ({
+                             ...bank,
+                             details: {
+                                 bankUrl: bank.details.bankUrl || '',
+                                 ...bank.details
+                             }
+                         }));
+                         setBanks(updatedBanks);
+                     }
                  }
-             }, []);
+             }, [isLoadingBanks]);
 
              const selectedBank = banks.find(b => b.id === selectedBankId) || banks[0];
+
+             // Show loading state
+             if (isLoadingBanks) {
+                 return (
+                     <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                         <div className="text-center">
+                             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
+                             <p className="text-gray-600">データを読み込み中...</p>
+                         </div>
+                     </div>
+                 );
+             }
 
              const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
              const closeModal = () => setModalState({ ...modalState, isOpen: false });
@@ -1730,11 +1836,11 @@
         };
 
         const SalesApp = () => {
-             // Version 19: Add CRUD for reps and training items
-             const [salesReps, setSalesReps] = usePersistentState('ghouse_sales_reps_v19', salesInitialData.salesReps);
-             const [trainingItems, setTrainingItems] = usePersistentState('ghouse_training_items_v19', salesInitialData.trainingItems);
-             const [progress, setProgress] = usePersistentState('ghouse_sales_progress_v19', salesInitialData.progress);
-             const [contracts, setContracts] = usePersistentState('ghouse_contracts_v1', salesInitialData.contracts);
+             // Version 20: Firebase integration for real-time sync
+             const [salesReps, setSalesReps, isLoadingSalesReps] = useFirebaseState('salesReps', salesInitialData.salesReps);
+             const [trainingItems, setTrainingItems, isLoadingTrainingItems] = useFirebaseState('trainingItems', salesInitialData.trainingItems);
+             const [progress, setProgress, isLoadingProgress] = useFirebaseState('progress', salesInitialData.progress);
+             const [contracts, setContracts, isLoadingContracts] = useFirebaseState('contracts', salesInitialData.contracts);
              const [activeRepId, setActiveRepId] = useState(null);
              const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
              const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
@@ -1744,12 +1850,26 @@
              const [isEditMode, setIsEditMode] = useState(false);
              const [isRepManagementOpen, setIsRepManagementOpen] = useState(false);
 
+             const isLoading = isLoadingSalesReps || isLoadingTrainingItems || isLoadingProgress || isLoadingContracts;
+
              // activeRepIdが有効なIDであることを確認
              useEffect(() => {
-                 if (salesReps.length > 0 && (!activeRepId || !salesReps.find(r => r.id === activeRepId))) {
+                 if (!isLoadingSalesReps && salesReps.length > 0 && (!activeRepId || !salesReps.find(r => r.id === activeRepId))) {
                      setActiveRepId(salesReps[0].id);
                  }
-             }, [salesReps]);
+             }, [isLoadingSalesReps, salesReps, activeRepId]);
+
+             // Show loading state
+             if (isLoading) {
+                 return (
+                     <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                         <div className="text-center">
+                             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
+                             <p className="text-gray-600">データを読み込み中...</p>
+                         </div>
+                     </div>
+                 );
+             }
 
              const showToast = (message, type) => setToast({ message, type });
              const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
@@ -2038,10 +2158,22 @@
         //  6. Debut Training App Components
         // ==========================================
         const DebutTrainingApp = () => {
-             const [trainingData, setTrainingData] = usePersistentState('ghouse_debut_training_v19', initialDebutTrainingData);
+             const [trainingData, setTrainingData, isLoadingTrainingData] = useFirebaseState('debutTraining', initialDebutTrainingData);
              const [toast, setToast] = useState({ message: '', type: 'success' });
              const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
              const [isEditMode, setIsEditMode] = useState(false);
+
+             // Show loading state
+             if (isLoadingTrainingData) {
+                 return (
+                     <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                         <div className="text-center">
+                             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
+                             <p className="text-gray-600">データを読み込み中...</p>
+                         </div>
+                     </div>
+                 );
+             }
 
              const showToast = (message, type) => setToast({ message, type });
              const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
