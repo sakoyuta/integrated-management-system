@@ -2069,7 +2069,7 @@
              };
 
              return (
-                 <div className="bg-gray-100 min-h-full font-sans p-8 overflow-y-auto">
+                 <div className="bg-gray-100 h-full font-sans p-8 overflow-y-auto">
                      <Toast {...toast} onDismiss={() => setToast({ ...toast, message: '' })} />
                      <ConfirmModal {...modalState} onCancel={closeModal} />
                      <div className="max-w-7xl mx-auto">
@@ -2228,7 +2228,7 @@
                 </div>
               </nav>
 
-              <div className="flex-1 overflow-hidden bg-gray-100">
+              <div className="flex-1 overflow-auto bg-gray-100">
                 <ErrorBoundary>
                     {currentView === 'home' && <HomePage onNavigate={setCurrentView} />}
                     {currentView === 'sales' && <SalesApp />}
