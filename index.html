@@ -225,19 +225,25 @@
             const iconRef = useRef(null);
 
             useLayoutEffect(() => {
-                if (window.lucide && iconRef.current) {
+                const currentElement = iconRef.current;
+
+                if (window.lucide && currentElement) {
                     // 現在の要素を空にする
-                    iconRef.current.textContent = '';
+                    currentElement.innerHTML = '';
                     // data-lucide属性を設定
-                    iconRef.current.setAttribute('data-lucide', name);
+                    currentElement.setAttribute('data-lucide', name);
                     // アイコンを作成
                     window.lucide.createIcons();
                 }
 
-                // クリーンアップ: 要素を空にする（removeChildを使わない）
+                // クリーンアップ: 要素が存在する場合のみ空にする
                 return () => {
-                    if (iconRef.current) {
-                        iconRef.current.textContent = '';
+                    if (currentElement && currentElement.parentNode) {
+                        try {
+                            currentElement.innerHTML = '';
+                        } catch (e) {
+                            // エラーを無視
+                        }
                     }
                 };
             }, [name]);
