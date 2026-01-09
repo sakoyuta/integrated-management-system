@@ -1218,6 +1218,8 @@
         const TrainingItemCard = ({ item, repId, progress, onStatusUpdate, onAddComment, onDeleteComment, isEditMode, onUpdateItem, onDeleteItem }) => {
             const [newComment, setNewComment] = useState('');
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+            const [selectedVideo, setSelectedVideo] = useState(null);
+            const [videoPreview, setVideoPreview] = useState(null);
             const [isDescOpen, setIsDescOpen] = useState(false);
             const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
@@ -1228,10 +1230,36 @@
             const itemPercentage = (STATUS_VALUE[currentProgress.status] || 0) * 100;
             const sortedComments = useMemo(() => (currentProgress.comments || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date)), [currentProgress.comments]);
 
+            const handleVideoSelect = (e) => {
+                const file = e.target.files[0];
+                if (file && file.type.startsWith('video/')) {
+                    if (file.size > 50 * 1024 * 1024) { // 50MB制限
+                        alert('動画ファイルは50MB以下にしてください');
+                        return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const videoData = event.target.result;
+                        setSelectedVideo(videoData);
+                        setVideoPreview(videoData);
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    alert('動画ファイルを選択してください');
+                }
+            };
+
+            const handleRemoveVideo = () => {
+                setSelectedVideo(null);
+                setVideoPreview(null);
+            };
+
             const handleAddCommentClick = () => {
                 if (newComment.trim() && selectedDate) {
-                    onAddComment(repId, item.id, newComment.trim(), selectedDate);
+                    onAddComment(repId, item.id, newComment.trim(), selectedDate, selectedVideo);
                     setNewComment('');
+                    setSelectedVideo(null);
+                    setVideoPreview(null);
                     setIsHistoryOpen(true);
                 }
             };
@@ -1329,6 +1357,11 @@
                                                     <button onClick={() => onDeleteComment(repId, item.id, c.id)} className="text-gray-400 hover:text-red-500"><LucideIcon name="trash-2" size={14}/></button>
                                                 </div>
                                                 <p className="text-gray-700 whitespace-pre-wrap">{c.text}</p>
+                                                {c.video && (
+                                                    <div className="mt-2">
+                                                        <video src={c.video} controls className="w-full max-h-48 rounded border border-gray-200" />
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
@@ -1337,6 +1370,18 @@
                                     <label className="text-[10px] text-gray-500 font-bold">新規履歴追加</label>
                                     <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
                                     <textarea placeholder="活動内容・フィードバック..." value={newComment} onChange={(e) => setNewComment(e.target.value)} className="w-full p-1.5 border rounded text-xs resize-none h-16" ></textarea>
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-[10px] text-gray-500 font-bold">動画アップロード (任意)</label>
+                                        <input type="file" accept="video/*" onChange={handleVideoSelect} className="w-full p-1.5 border rounded text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                                        {videoPreview && (
+                                            <div className="relative">
+                                                <video src={videoPreview} controls className="w-full max-h-32 rounded border" />
+                                                <button onClick={handleRemoveVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
+                                                    <LucideIcon name="x" size={14} />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                     <button onClick={handleAddCommentClick} className="w-full bg-blue-600 text-white py-1.5 rounded text-xs font-bold hover:bg-blue-700 transition-colors disabled:opacity-50" disabled={!newComment.trim() || !selectedDate}>記録を追加</button>
                                 </div>
                             </div>
@@ -1438,8 +1483,8 @@
                  setProgress(prev => ({ ...prev, [repId]: { ...prev[repId], [itemId]: { ...(prev[repId]?.[itemId] || { status: '未着手', comments: [] }), [field]: value } } }));
              };
 
-             const handleAddComment = (repId, itemId, text, date) => {
-                 const newComment = { id: Date.now(), date, text };
+             const handleAddComment = (repId, itemId, text, date, videoData = null) => {
+                 const newComment = { id: Date.now(), date, text, video: videoData };
                  setProgress(prev => {
                      const p = prev[repId] || {};
                      const itemP = p[itemId] || { status: '未着手', comments: [] };
