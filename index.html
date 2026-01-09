@@ -730,7 +730,7 @@
                                  {steps.map((step, index) => {
                                      const isTimelinePoint = step.days && step.days.includes("日") && !step.days.includes("随時");
                                      return (
-                                         <>
+                                         <React.Fragment key={step.id}>
                                              {isTimelinePoint && (
                                                 <div className="absolute -left-[60px] top-2 flex flex-col items-end w-12">
                                                     <span className="text-[10px] font-bold text-gray-600 bg-gray-200 px-1 rounded whitespace-nowrap">{step.days}</span>
@@ -742,14 +742,13 @@
                                              )}
 
                                              <div
-                                                  key={step.id}
                                                   onClick={() => onSelectStep(step.id)}
                                                   className={`ml-2 p-3 rounded border cursor-pointer text-sm shadow-sm transition-all relative mb-6 ${selectedStepId === step.id ? 'ring-2 ring-blue-500 z-10 scale-[1.02]' : 'hover:shadow-md hover:scale-[1.01]'} ${step.role === 'admin' ? 'bg-white border-gray-300 text-gray-800' : 'bg-amber-800 text-white border-transparent'}`}
                                              >
                                                  {step.days && !isTimelinePoint && <span className="text-[10px] font-bold opacity-70 block mb-1">{step.days}</span>}
                                                  <div className="font-medium">{step.title}</div>
                                              </div>
-                                         </>
+                                         </React.Fragment>
                                      );
                                  })}                             </div>
                         </div>
@@ -1859,18 +1858,6 @@
                  }
              }, [isLoadingSalesReps, salesReps, activeRepId]);
 
-             // Show loading state
-             if (isLoading) {
-                 return (
-                     <div className="flex h-full w-full items-center justify-center bg-gray-100">
-                         <div className="text-center">
-                             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
-                             <p className="text-gray-600">データを読み込み中...</p>
-                         </div>
-                     </div>
-                 );
-             }
-
              const showToast = (message, type) => setToast({ message, type });
              const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
              const closeModal = () => setModalState({ ...modalState, isOpen: false });
@@ -2037,6 +2024,17 @@
                  });
              }, [itemsByCategory, progress, activeRepId]);
 
+             // Show loading state after all Hooks
+             if (isLoading) {
+                 return (
+                     <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                         <div className="text-center">
+                             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
+                             <p className="text-gray-600">データを読み込み中...</p>
+                         </div>
+                     </div>
+                 );
+             }
 
              return (
                  <div className="bg-gray-100 h-full overflow-y-auto font-sans">
