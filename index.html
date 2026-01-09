@@ -156,8 +156,13 @@
         // ==========================================
 
         const LucideIcon = ({ name, className, size = 20 }) => {
-            useEffect(() => { if (window.lucide) window.lucide.createIcons(); });
-            return <i data-lucide={name} className={className} width={size} height={size}></i>;
+            const iconRef = useRef(null);
+            useLayoutEffect(() => {
+                if (window.lucide && iconRef.current && !iconRef.current.querySelector('svg')) {
+                    window.lucide.createIcons();
+                }
+            });
+            return <i ref={iconRef} data-lucide={name} className={className} width={size} height={size}></i>;
         };
 
         const VideoPlayer = ({ videoId, className }) => {
