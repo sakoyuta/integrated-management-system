@@ -158,7 +158,13 @@
         const LucideIcon = ({ name, className, size = 20 }) => {
             const iconRef = useRef(null);
             useLayoutEffect(() => {
-                if (window.lucide && iconRef.current && !iconRef.current.querySelector('svg')) {
+                if (window.lucide && iconRef.current) {
+                    // 既存のSVGを削除
+                    const existingSvg = iconRef.current.querySelector('svg');
+                    if (existingSvg) {
+                        existingSvg.remove();
+                    }
+                    // 新しいアイコンを作成
                     window.lucide.createIcons();
                 }
             });
