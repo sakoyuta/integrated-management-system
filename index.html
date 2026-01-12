@@ -104,37 +104,45 @@
         const useFirebaseState = (path, initialValue) => {
             const [state, setState] = useState(initialValue);
             const [isLoading, setIsLoading] = useState(true);
-            const dbRef = database.ref(path);
+            const isUpdatingRef = useRef(false);
 
             useEffect(() => {
-                // Load initial data from Firebase
-                dbRef.once('value').then(snapshot => {
-                    const data = snapshot.val();
-                    if (data !== null) {
-                        setState(data);
-                    }
-                    setIsLoading(false);
-                }).catch(error => {
-                    console.error('Firebase load error:', error);
-                    setIsLoading(false);
-                });
+                const dbRef = database.ref(path);
 
                 // Listen for realtime updates
                 const listener = dbRef.on('value', snapshot => {
                     const data = snapshot.val();
                     if (data !== null) {
                         setState(data);
+                    } else {
+                        // If no data in Firebase, use initial value
+                        setState(initialValue);
                     }
+                    setIsLoading(false);
+                }, error => {
+                    console.error('Firebase load error:', error);
+                    setIsLoading(false);
                 });
 
-                return () => dbRef.off('value', listener);
+                return () => {
+                    dbRef.off('value', listener);
+                };
             }, [path]);
 
             const updateState = (newState) => {
-                setState(newState);
-                dbRef.set(newState).catch(error => {
-                    console.error('Firebase update error:', error);
+                let finalState;
+                setState(prevState => {
+                    finalState = typeof newState === 'function' ? newState(prevState) : newState;
+                    return finalState;
                 });
+
+                // Use setTimeout to ensure state has been updated before syncing to Firebase
+                setTimeout(() => {
+                    const dbRef = database.ref(path);
+                    dbRef.set(finalState).catch(error => {
+                        console.error('Firebase update error:', error);
+                    });
+                }, 0);
             };
 
             return [state, updateState, isLoading];
@@ -221,34 +229,44 @@
         //  1. Icons & Shared UI Components
         // ==========================================
 
+        // Simple icon component using Unicode emoji - avoids DOM manipulation conflicts
         const LucideIcon = ({ name, className, size = 20 }) => {
-            const iconRef = useRef(null);
+            const iconMap = {
+                'users': '👥',
+                'file-text': '📄',
+                'dollar-sign': '💰',
+                'graduation-cap': '🎓',
+                'grip-vertical': '⋮',
+                'trash-2': '🗑️',
+                'upload': '⬆️',
+                'link': '🔗',
+                'plus': '➕',
+                'alert-triangle': '⚠️',
+                'x': '❌',
+                'check': '✓',
+                'edit': '✏️',
+                'save': '💾',
+                'home': '🏠',
+                'settings': '⚙️',
+                'search': '🔍',
+                'menu': '☰'
+            };
 
-            useLayoutEffect(() => {
-                const currentElement = iconRef.current;
+            const icon = iconMap[name] || '●';
 
-                if (window.lucide && currentElement) {
-                    // 現在の要素を空にする
-                    currentElement.innerHTML = '';
-                    // data-lucide属性を設定
-                    currentElement.setAttribute('data-lucide', name);
-                    // アイコンを作成
-                    window.lucide.createIcons();
-                }
-
-                // クリーンアップ: 要素が存在する場合のみ空にする
-                return () => {
-                    if (currentElement && currentElement.parentNode) {
-                        try {
-                            currentElement.innerHTML = '';
-                        } catch (e) {
-                            // エラーを無視
-                        }
-                    }
-                };
-            }, [name]);
-
-            return <i ref={iconRef} className={className} style={{ width: size, height: size }}></i>;
+            return (
+                <span
+                    className={className}
+                    style={{
+                        fontSize: size,
+                        display: 'inline-block',
+                        lineHeight: 1,
+                        verticalAlign: 'middle'
+                    }}
+                >
+                    {icon}
+                </span>
+            );
         };
 
         const VideoPlayer = ({ videoId, className }) => {
@@ -287,9 +305,15 @@
         };
 
         const Toast = ({ message, type, onDismiss }) => {
+            useEffect(() => {
+                if (message) {
+                    const timer = setTimeout(onDismiss, 3000);
+                    return () => clearTimeout(timer);
+                }
+            }, [message, onDismiss]);
+
             if (!message) return null;
             const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
-            useEffect(() => { const timer = setTimeout(onDismiss, 3000); return () => clearTimeout(timer); }, [onDismiss]);
             return ( <div className="fixed top-5 right-5 z-50 animate-fade-in"> <div className={`${bgColor} text-white font-bold rounded-lg shadow-lg py-3 px-5 flex items-center`}> <span className="flex-grow">{message}</span> </div> </div> );
         };
 
@@ -2167,6 +2191,61 @@
              const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
              const [isEditMode, setIsEditMode] = useState(false);
 
+             // Migrate old data to add _id to PDFs and URLs
+             useEffect(() => {
+                 if (!isLoadingTrainingData && trainingData) {
+                     console.log('=== Training Data Loaded ===');
+                     console.log('Training Data:', JSON.stringify(trainingData, null, 2));
+
+                     let needsMigration = false;
+                     const migratedData = {};
+
+                     Object.keys(trainingData).forEach(category => {
+                         migratedData[category] = (trainingData[category] || []).map(item => {
+                             const migratedItem = {...item};
+
+                             // Migrate PDFs
+                             if (item.pdfs && Array.isArray(item.pdfs)) {
+                                 migratedItem.pdfs = item.pdfs.map((pdf, idx) => {
+                                     if (!pdf._id) {
+                                         needsMigration = true;
+                                         console.log(`Migrating PDF without _id in ${category} > ${item.title}`);
+                                         return {...pdf, _id: `pdf_${item.id}_${idx}_${Date.now()}`};
+                                     }
+                                     return pdf;
+                                 });
+                             }
+
+                             // Migrate URLs
+                             if (item.urls && Array.isArray(item.urls)) {
+                                 migratedItem.urls = item.urls.map((urlItem, idx) => {
+                                     if (typeof urlItem === 'string') {
+                                         needsMigration = true;
+                                         console.log(`Migrating string URL in ${category} > ${item.title}`);
+                                         return {_id: `url_${item.id}_${idx}_${Date.now()}`, url: urlItem};
+                                     } else if (!urlItem._id) {
+                                         needsMigration = true;
+                                         console.log(`Migrating URL without _id in ${category} > ${item.title}`);
+                                         return {...urlItem, _id: `url_${item.id}_${idx}_${Date.now()}`};
+                                     }
+                                     return urlItem;
+                                 });
+                             }
+
+                             return migratedItem;
+                         });
+                     });
+
+                     if (needsMigration) {
+                         console.log('=== Data Migration Required ===');
+                         console.log('Migrated Data:', JSON.stringify(migratedData, null, 2));
+                         setTrainingData(migratedData);
+                     } else {
+                         console.log('=== No Migration Needed ===');
+                     }
+                 }
+             }, [isLoadingTrainingData]);
+
              // Show loading state
              if (isLoadingTrainingData) {
                  return (
@@ -2179,6 +2258,23 @@
                  );
              }
 
+             // Validate trainingData structure
+             if (!trainingData || typeof trainingData !== 'object') {
+                 return (
+                     <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                         <div className="text-center">
+                             <p className="text-red-600">データの読み込みに失敗しました</p>
+                             <button
+                                 onClick={() => window.location.reload()}
+                                 className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                             >
+                                 再読み込み
+                             </button>
+                         </div>
+                     </div>
+                 );
+             }
+
              const showToast = (message, type) => setToast({ message, type });
              const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
              const closeModal = () => setModalState({ ...modalState, isOpen: false });
@@ -2186,11 +2282,13 @@
              const handleUploadPdf = async (category, itemId, file) => {
                  try {
                      const uploadedFile = await mockApi.uploadFile(file);
+                     // Add unique ID to the PDF
+                     const pdfWithId = {...uploadedFile, _id: `pdf_${Date.now()}_${Math.random()}`};
                      setTrainingData(prev => {
                          const newData = {...prev};
-                         newData[category] = newData[category].map(item => {
+                         newData[category] = (newData[category] || []).map(item => {
                              if(item.id === itemId) {
-                                 return {...item, pdfs: [...item.pdfs, uploadedFile]};
+                                 return {...item, pdfs: [...(item.pdfs || []), pdfWithId]};
                              }
                              return item;
                          });
@@ -2202,14 +2300,24 @@
                  }
              };
 
-             const handleDeletePdf = (category, itemId, pdfIndex) => {
+             const handleDeletePdf = (category, itemId, pdfId) => {
                  showModal('PDF削除', 'このPDFを削除してもよろしいですか？', () => {
                      setTrainingData(prev => {
                          const newData = {...prev};
-                         newData[category] = newData[category].map(item => {
+                         newData[category] = (newData[category] || []).map(item => {
                              if(item.id === itemId) {
-                                 const newPdfs = [...item.pdfs];
-                                 newPdfs.splice(pdfIndex, 1);
+                                 // Try to filter by _id first, if not found, try by constructed key
+                                 let newPdfs = (item.pdfs || []).filter(pdf => pdf._id !== pdfId);
+
+                                 // If nothing was filtered (meaning pdfId is a fallback key), use index
+                                 if (newPdfs.length === item.pdfs.length && pdfId.startsWith('pdf-')) {
+                                     const idx = parseInt(pdfId.split('-').pop());
+                                     if (!isNaN(idx)) {
+                                         newPdfs = [...item.pdfs];
+                                         newPdfs.splice(idx, 1);
+                                     }
+                                 }
+
                                  return {...item, pdfs: newPdfs};
                              }
                              return item;
@@ -2223,11 +2331,13 @@
 
              const handleAddUrl = (category, itemId, url) => {
                  if (!url) return;
+                 // Create URL object with unique ID
+                 const urlWithId = { _id: `url_${Date.now()}_${Math.random()}`, url: url };
                  setTrainingData(prev => {
                      const newData = {...prev};
-                     newData[category] = newData[category].map(item => {
+                     newData[category] = (newData[category] || []).map(item => {
                          if (item.id === itemId) {
-                             return { ...item, urls: [...(item.urls || []), url] };
+                             return { ...item, urls: [...(item.urls || []), urlWithId] };
                          }
                          return item;
                      });
@@ -2236,14 +2346,27 @@
                  showToast('URLを追加しました', 'success');
              };
 
-             const handleDeleteUrl = (category, itemId, urlIndex) => {
+             const handleDeleteUrl = (category, itemId, urlId) => {
                  showModal('URL削除', 'このURLを削除してもよろしいですか？', () => {
                     setTrainingData(prev => {
                         const newData = {...prev};
-                        newData[category] = newData[category].map(item => {
+                        newData[category] = (newData[category] || []).map(item => {
                             if (item.id === itemId) {
-                                const newUrls = [...(item.urls || [])];
-                                newUrls.splice(urlIndex, 1);
+                                // Try to filter by _id first
+                                let newUrls = (item.urls || []).filter(urlItem => {
+                                    const id = typeof urlItem === 'object' ? urlItem._id : null;
+                                    return id !== urlId;
+                                });
+
+                                // If nothing was filtered (meaning urlId is a fallback key), use index
+                                if (newUrls.length === item.urls.length && urlId.startsWith('url-')) {
+                                    const idx = parseInt(urlId.split('-').pop());
+                                    if (!isNaN(idx)) {
+                                        newUrls = [...item.urls];
+                                        newUrls.splice(idx, 1);
+                                    }
+                                }
+
                                 return { ...item, urls: newUrls };
                             }
                             return item;
@@ -2259,7 +2382,7 @@
              const handleUpdateTitle = (category, itemId, newTitle) => {
                  setTrainingData(prev => {
                      const newData = {...prev};
-                     newData[category] = newData[category].map(item =>
+                     newData[category] = (newData[category] || []).map(item =>
                          item.id === itemId ? {...item, title: newTitle} : item
                      );
                      return newData;
@@ -2270,7 +2393,7 @@
                  const newId = `new_${Date.now()}`;
                  setTrainingData(prev => ({
                      ...prev,
-                     [category]: [...prev[category], { id: newId, title: '新規項目', pdfs: [], urls: [] }]
+                     [category]: [...(prev[category] || []), { id: newId, title: '新規項目', pdfs: [], urls: [] }]
                  }));
              };
 
@@ -2278,7 +2401,7 @@
                  showModal('項目削除', 'この項目を削除してもよろしいですか？', () => {
                      setTrainingData(prev => ({
                          ...prev,
-                         [category]: prev[category].filter(item => item.id !== itemId)
+                         [category]: (prev[category] || []).filter(item => item.id !== itemId)
                      }));
                      closeModal();
                  });
@@ -2316,7 +2439,7 @@
 
                  if (sourceCategory === targetCategory && sourceIndex !== targetIndex) {
                      setTrainingData(prev => {
-                         const newItems = [...prev[sourceCategory]];
+                         const newItems = [...(prev[sourceCategory] || [])];
                          const [reorderedItem] = newItems.splice(sourceIndex, 1);
                          newItems.splice(targetIndex, 0, reorderedItem);
                          return { ...prev, [sourceCategory]: newItems };
@@ -2349,7 +2472,7 @@
                                      </div>
                                      <div className="p-4 flex-1 overflow-y-auto">
                                          <div className="space-y-4">
-                                             {trainingData[category].map((item, index) => (
+                                             {(trainingData[category] || []).map((item, index) => (
                                                  <div
                                                     key={item.id}
                                                     className={`border rounded-lg p-3 bg-gray-50 hover:shadow-sm transition-shadow ${isEditMode ? "cursor-move" : ""}`}
@@ -2375,14 +2498,14 @@
 
                                                      {/* PDF List */}
                                                      <div className="space-y-2 mb-3">
-                                                         {item.pdfs.map((pdf, idx) => (
-                                                             <div key={idx} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
+                                                         {(item.pdfs || []).map((pdf, idx) => (
+                                                             <div key={pdf._id || `pdf-${item.id}-${idx}`} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
                                                                  <div onClick={() => handleOpenPdf(pdf)} className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2">
                                                                      <LucideIcon name="file-text" size={14} className="mr-1 text-red-500 flex-shrink-0"/>
                                                                      <span className="truncate">{pdf.name}</span>
                                                                  </div>
                                                                 {isEditMode && (
-                                                                    <button type="button" onClick={() => handleDeletePdf(category, item.id, idx)} className="text-gray-400 hover:text-red-500">00d7</button>
+                                                                    <button type="button" onClick={() => handleDeletePdf(category, item.id, pdf._id || `pdf-${item.id}-${idx}`)} className="text-gray-400 hover:text-red-500">×</button>
                                                                 )}
                                                              </div>
                                                          ))}
@@ -2397,17 +2520,21 @@
 
                                                      {/* URL List */}
                                                      <div className="space-y-2 mb-3">
-                                                        {(item.urls || []).map((url, idx) => (
-                                                            <div key={idx} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
-                                                                <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2 text-blue-500">
-                                                                    <LucideIcon name="link" size={14} className="mr-1 flex-shrink-0"/>
-                                                                    <span className="truncate">{url}</span>
-                                                                </a>
-                                                                {isEditMode && (
-                                                                    <button onClick={() => handleDeleteUrl(category, item.id, idx)} className="text-gray-400 hover:text-red-500">00d7</button>
-                                                                )}
-                                                            </div>
-                                                        ))}
+                                                        {(item.urls || []).map((urlItem, idx) => {
+                                                            const urlString = typeof urlItem === 'string' ? urlItem : urlItem.url;
+                                                            const urlKey = typeof urlItem === 'object' ? urlItem._id : `url-${item.id}-${idx}`;
+                                                            return (
+                                                                <div key={urlKey || `url-${item.id}-${idx}`} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
+                                                                    <a href={urlString} target="_blank" rel="noopener noreferrer" className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2 text-blue-500">
+                                                                        <LucideIcon name="link" size={14} className="mr-1 flex-shrink-0"/>
+                                                                        <span className="truncate">{urlString}</span>
+                                                                    </a>
+                                                                    {isEditMode && (
+                                                                        <button onClick={() => handleDeleteUrl(category, item.id, urlKey)} className="text-gray-400 hover:text-red-500">×</button>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
                                                      </div>
 
                                                      {/* Add URL Input */}
