@@ -1612,6 +1612,13 @@
             );
         };
 
+        // Category display names mapping for Firebase-compatible keys
+        const categoryDisplayNames = {
+            'A研修_デビュー': 'A研修 (デビュー)',
+            'B研修_1_5棟月': 'B研修 (1.5棟/月)',
+            'C研修_独り立ち': 'C研修 (独り立ち)'
+        };
+
         const TrainingItemCard = ({ item, repId, progress, onStatusUpdate, onAddComment, onDeleteComment, isEditMode, onUpdateItem, onDeleteItem }) => {
             const [newComment, setNewComment] = useState('');
             const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
@@ -1786,7 +1793,7 @@
                             ) : (
                                 <>
                                     <p className="font-semibold text-gray-700">{item.name}</p>
-                                    <p className="text-sm text-gray-500">{item.category}</p>
+                                    <p className="text-sm text-gray-500">{categoryDisplayNames[item.category] || item.category}</p>
                                 </>
                             )}
                         </div>
@@ -2081,9 +2088,12 @@
                  return ( <div className="relative flex items-center justify-center w-32 h-32"> <svg height={radius * 2} width={radius * 2} className="transform -rotate-90"> <circle stroke="#e5e7eb" strokeWidth={stroke} fill="transparent" r={normalizedRadius} cx={radius} cy={radius} /> <circle stroke="#2563eb" strokeWidth={stroke} strokeDasharray={circumference + ' ' + circumference} style={{ strokeDashoffset }} strokeLinecap="round" fill="transparent" r={normalizedRadius} cx={radius} cy={radius} className="transition-all duration-500 ease-in-out" /> </svg> <div className="absolute text-2xl font-bold text-gray-700">{Math.round(percentage)}%</div> </div> );
              };
 
-             const CategoryProgressBar = ({ category, percentage }) => (
-                 <div className="flex items-center w-full text-xs mb-2"> <span className="text-gray-600 w-24 truncate pr-2 text-right">{category}</span> <div className="flex-grow bg-gray-200 rounded-full h-2"> <div className="bg-blue-500 h-2 rounded-full transition-all duration-500" style={{ width: `${percentage}%` }}></div> </div> <span className="font-semibold text-gray-700 w-10 text-left pl-2">{Math.round(percentage)}%</span> </div>
-             );
+             const CategoryProgressBar = ({ category, percentage }) => {
+                 const displayName = categoryDisplayNames[category] || category;
+                 return (
+                     <div className="flex items-center w-full text-xs mb-2"> <span className="text-gray-600 w-24 truncate pr-2 text-right">{displayName}</span> <div className="flex-grow bg-gray-200 rounded-full h-2"> <div className="bg-blue-500 h-2 rounded-full transition-all duration-500" style={{ width: `${percentage}%` }}></div> </div> <span className="font-semibold text-gray-700 w-10 text-left pl-2">{Math.round(percentage)}%</span> </div>
+                 );
+             };
 
              const itemsByCategory = useMemo(() => {
                  if (!trainingItems) return {};
@@ -2190,10 +2200,11 @@
                                      <div className="space-y-8">
                                          {categoryOrder.map(category => {
                                              const items = itemsByCategory[category] || [];
+                                             const displayName = categoryDisplayNames[category] || category;
                                              return (
                                                  <div key={category}>
                                                      <div className="flex items-center justify-between mb-4">
-                                                         <h3 className="text-xl font-bold text-gray-800 border-l-4 border-blue-500 pl-3">{category}</h3>
+                                                         <h3 className="text-xl font-bold text-gray-800 border-l-4 border-blue-500 pl-3">{displayName}</h3>
                                                          {isEditMode && (
                                                              <button onClick={() => handleAddTrainingItem(category)} className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-bold flex items-center gap-1">
                                                                  <LucideIcon name="plus" size={16} /> 研修項目追加
