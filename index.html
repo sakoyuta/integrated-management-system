@@ -1938,6 +1938,7 @@
              const [toast, setToast] = useState({ message: '', type: 'success' });
              const [isEditMode, setIsEditMode] = useState(false);
              const [isRepManagementOpen, setIsRepManagementOpen] = useState(false);
+             const hasMigratedCategoriesRef = useRef(false);
 
              const isLoading = isLoadingSalesReps || isLoadingTrainingItems || isLoadingProgress || isLoadingContracts;
 
@@ -1947,6 +1948,35 @@
                      setActiveRepId(salesReps[0].id);
                  }
              }, [isLoadingSalesReps, salesReps, activeRepId]);
+
+             // Migrate old category names to new Firebase-compatible format (one-time only)
+             useEffect(() => {
+                 if (!isLoadingTrainingItems && trainingItems && trainingItems.length > 0 && !hasMigratedCategoriesRef.current) {
+                     const categoryMigrationMap = {
+                         'A研修 (デビュー)': 'A研修_デビュー',
+                         'B研修 (1.5棟/月)': 'B研修_1_5棟月',
+                         'C研修 (独り立ち)': 'C研修_独り立ち'
+                     };
+
+                     let needsMigration = false;
+                     const migratedItems = trainingItems.map(item => {
+                         if (categoryMigrationMap[item.category]) {
+                             needsMigration = true;
+                             console.log(`Migrating category: ${item.category} → ${categoryMigrationMap[item.category]}`);
+                             return { ...item, category: categoryMigrationMap[item.category] };
+                         }
+                         return item;
+                     });
+
+                     if (needsMigration) {
+                         console.log('=== Category Migration Required ===');
+                         setTrainingItems(migratedItems);
+                         hasMigratedCategoriesRef.current = true;
+                     } else {
+                         hasMigratedCategoriesRef.current = true;
+                     }
+                 }
+             }, [isLoadingTrainingItems]);
 
              const showToast = (message, type) => setToast({ message, type });
              const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
