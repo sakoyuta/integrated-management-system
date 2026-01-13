@@ -104,27 +104,72 @@
         const useFirebaseState = (path, initialValue) => {
             const [state, setState] = useState(initialValue);
             const [isLoading, setIsLoading] = useState(true);
-            const isUpdatingRef = useRef(false);
+            const hasInitializedRef = useRef(false);
 
             useEffect(() => {
                 const dbRef = database.ref(path);
 
+                // Safety timeout - force loading to complete after 5 seconds
+                const safetyTimeout = setTimeout(() => {
+                    console.warn(`Safety timeout triggered for ${path} - forcing loading complete`);
+                    setIsLoading(false);
+                    if (!hasInitializedRef.current) {
+                        setState(initialValue);
+                        hasInitializedRef.current = true;
+                    }
+                }, 5000);
+
                 // Listen for realtime updates
                 const listener = dbRef.on('value', snapshot => {
-                    const data = snapshot.val();
-                    if (data !== null) {
-                        setState(data);
-                    } else {
-                        // If no data in Firebase, use initial value
+                    try {
+                        clearTimeout(safetyTimeout); // Clear safety timeout since listener fired
+                        const data = snapshot.val();
+                        console.log(`=== Firebase Listener Triggered for ${path} ===`);
+                        console.log('Data from Firebase:', data ? 'exists' : 'null');
+                        console.log('hasInitializedRef.current:', hasInitializedRef.current);
+
+                        if (data !== null && data !== undefined) {
+                            console.log(`✓ Firebase data exists for ${path}, loading...`);
+                            try {
+                                console.log('Data keys:', Object.keys(data || {}).join(', '));
+                            } catch (e) {
+                                console.log('Could not get data keys');
+                            }
+                            setState(data);
+                            hasInitializedRef.current = true;
+                            setIsLoading(false);
+                        } else if (!hasInitializedRef.current) {
+                            // If no data in Firebase on first load, save initial value
+                            console.log(`⚠ No data in Firebase for ${path}, saving initial value`);
+                            setState(initialValue);
+                            setIsLoading(false);
+                            dbRef.set(initialValue).then(() => {
+                                console.log(`✓ Initial value saved to Firebase for ${path}`);
+                                hasInitializedRef.current = true;
+                            }).catch(error => {
+                                console.error('✗ Failed to save initial value:', error);
+                                hasInitializedRef.current = true; // Mark as initialized even on error
+                            });
+                        } else {
+                            console.log(`⚠ Firebase returned null but already initialized for ${path}`);
+                            setIsLoading(false);
+                        }
+                    } catch (error) {
+                        console.error('Error in Firebase listener:', error);
                         setState(initialValue);
+                        setIsLoading(false);
+                        hasInitializedRef.current = true;
                     }
-                    setIsLoading(false);
                 }, error => {
-                    console.error('Firebase load error:', error);
+                    console.error('✗ Firebase load error:', error);
+                    clearTimeout(safetyTimeout);
+                    setState(initialValue);
                     setIsLoading(false);
+                    hasInitializedRef.current = true;
                 });
 
                 return () => {
+                    clearTimeout(safetyTimeout);
                     dbRef.off('value', listener);
                 };
             }, [path]);
@@ -133,16 +178,24 @@
                 let finalState;
                 setState(prevState => {
                     finalState = typeof newState === 'function' ? newState(prevState) : newState;
+
+                    // Save to Firebase immediately with the computed state
+                    const dbRef = database.ref(path);
+                    console.log('=== Saving to Firebase ===');
+                    console.log('Path:', path);
+                    console.log('Data:', JSON.stringify(finalState, null, 2));
+
+                    dbRef.set(finalState)
+                        .then(() => {
+                            console.log('✓ Firebase save successful');
+                        })
+                        .catch(error => {
+                            console.error('✗ Firebase save error:', error);
+                            console.error('Error details:', error.message, error.code);
+                        });
+
                     return finalState;
                 });
-
-                // Use setTimeout to ensure state has been updated before syncing to Firebase
-                setTimeout(() => {
-                    const dbRef = database.ref(path);
-                    dbRef.set(finalState).catch(error => {
-                        console.error('Firebase update error:', error);
-                    });
-                }, 0);
             };
 
             return [state, updateState, isLoading];
@@ -2191,57 +2244,14 @@
              const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
              const [isEditMode, setIsEditMode] = useState(false);
 
-             // Migrate old data to add _id to PDFs and URLs
+             // Simple data logging - no migration
              useEffect(() => {
                  if (!isLoadingTrainingData && trainingData) {
                      console.log('=== Training Data Loaded ===');
-                     console.log('Training Data:', JSON.stringify(trainingData, null, 2));
-
-                     let needsMigration = false;
-                     const migratedData = {};
-
-                     Object.keys(trainingData).forEach(category => {
-                         migratedData[category] = (trainingData[category] || []).map(item => {
-                             const migratedItem = {...item};
-
-                             // Migrate PDFs
-                             if (item.pdfs && Array.isArray(item.pdfs)) {
-                                 migratedItem.pdfs = item.pdfs.map((pdf, idx) => {
-                                     if (!pdf._id) {
-                                         needsMigration = true;
-                                         console.log(`Migrating PDF without _id in ${category} > ${item.title}`);
-                                         return {...pdf, _id: `pdf_${item.id}_${idx}_${Date.now()}`};
-                                     }
-                                     return pdf;
-                                 });
-                             }
-
-                             // Migrate URLs
-                             if (item.urls && Array.isArray(item.urls)) {
-                                 migratedItem.urls = item.urls.map((urlItem, idx) => {
-                                     if (typeof urlItem === 'string') {
-                                         needsMigration = true;
-                                         console.log(`Migrating string URL in ${category} > ${item.title}`);
-                                         return {_id: `url_${item.id}_${idx}_${Date.now()}`, url: urlItem};
-                                     } else if (!urlItem._id) {
-                                         needsMigration = true;
-                                         console.log(`Migrating URL without _id in ${category} > ${item.title}`);
-                                         return {...urlItem, _id: `url_${item.id}_${idx}_${Date.now()}`};
-                                     }
-                                     return urlItem;
-                                 });
-                             }
-
-                             return migratedItem;
-                         });
-                     });
-
-                     if (needsMigration) {
-                         console.log('=== Data Migration Required ===');
-                         console.log('Migrated Data:', JSON.stringify(migratedData, null, 2));
-                         setTrainingData(migratedData);
-                     } else {
-                         console.log('=== No Migration Needed ===');
+                     try {
+                         console.log('Training Data categories:', Object.keys(trainingData || {}).join(', '));
+                     } catch (e) {
+                         console.log('Could not log training data');
                      }
                  }
              }, [isLoadingTrainingData]);
@@ -2472,15 +2482,17 @@
                                      </div>
                                      <div className="p-4 flex-1 overflow-y-auto">
                                          <div className="space-y-4">
-                                             {(trainingData[category] || []).map((item, index) => (
-                                                 <div
-                                                    key={item.id}
-                                                    className={`border rounded-lg p-3 bg-gray-50 hover:shadow-sm transition-shadow ${isEditMode ? "cursor-move" : ""}`}
-                                                    draggable={isEditMode}
-                                                    onDragStart={(e) => handleDragStart(e, category, index)}
-                                                    onDragOver={handleDragOver}
-                                                    onDrop={(e) => handleDrop(e, category, index)}
-                                                 >
+                                             {(trainingData[category] || []).map((item, index) => {
+                                                 if (!item || !item.id) return null;
+                                                 return (
+                                                     <div
+                                                        key={item.id}
+                                                        className={`border rounded-lg p-3 bg-gray-50 hover:shadow-sm transition-shadow ${isEditMode ? "cursor-move" : ""}`}
+                                                        draggable={isEditMode}
+                                                        onDragStart={(e) => handleDragStart(e, category, index)}
+                                                        onDragOver={handleDragOver}
+                                                        onDrop={(e) => handleDrop(e, category, index)}
+                                                     >
                                                      <div className="flex justify-between items-start mb-2">
                                                          <div className="flex items-center flex-1 mr-2">
                                                             {isEditMode && <LucideIcon name="grip-vertical" className="mr-2 text-gray-400 flex-shrink-0" size={16}/>}
@@ -2498,17 +2510,26 @@
 
                                                      {/* PDF List */}
                                                      <div className="space-y-2 mb-3">
-                                                         {(item.pdfs || []).map((pdf, idx) => (
-                                                             <div key={pdf._id || `pdf-${item.id}-${idx}`} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
-                                                                 <div onClick={() => handleOpenPdf(pdf)} className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2">
-                                                                     <LucideIcon name="file-text" size={14} className="mr-1 text-red-500 flex-shrink-0"/>
-                                                                     <span className="truncate">{pdf.name}</span>
-                                                                 </div>
-                                                                {isEditMode && (
-                                                                    <button type="button" onClick={() => handleDeletePdf(category, item.id, pdf._id || `pdf-${item.id}-${idx}`)} className="text-gray-400 hover:text-red-500">×</button>
-                                                                )}
-                                                             </div>
-                                                         ))}
+                                                         {(item.pdfs || []).map((pdf, idx) => {
+                                                             try {
+                                                                 if (!pdf || !pdf.name) return null;
+                                                                 const pdfKey = (pdf && pdf._id) || `pdf-${item.id}-${idx}`;
+                                                                 return (
+                                                                     <div key={pdfKey} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
+                                                                         <div onClick={() => handleOpenPdf(pdf)} className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2">
+                                                                             <LucideIcon name="file-text" size={14} className="mr-1 text-red-500 flex-shrink-0"/>
+                                                                             <span className="truncate">{pdf.name}</span>
+                                                                         </div>
+                                                                        {isEditMode && (
+                                                                            <button type="button" onClick={() => handleDeletePdf(category, item.id, pdfKey)} className="text-gray-400 hover:text-red-500">×</button>
+                                                                        )}
+                                                                     </div>
+                                                                 );
+                                                             } catch (e) {
+                                                                 console.error('Error rendering PDF item:', e);
+                                                                 return null;
+                                                             }
+                                                         })}
                                                      </div>
                                                     {/* Upload Button */}
                                                     {isEditMode && (
@@ -2521,19 +2542,25 @@
                                                      {/* URL List */}
                                                      <div className="space-y-2 mb-3">
                                                         {(item.urls || []).map((urlItem, idx) => {
-                                                            const urlString = typeof urlItem === 'string' ? urlItem : urlItem.url;
-                                                            const urlKey = typeof urlItem === 'object' ? urlItem._id : `url-${item.id}-${idx}`;
-                                                            return (
-                                                                <div key={urlKey || `url-${item.id}-${idx}`} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
-                                                                    <a href={urlString} target="_blank" rel="noopener noreferrer" className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2 text-blue-500">
-                                                                        <LucideIcon name="link" size={14} className="mr-1 flex-shrink-0"/>
-                                                                        <span className="truncate">{urlString}</span>
-                                                                    </a>
-                                                                    {isEditMode && (
-                                                                        <button onClick={() => handleDeleteUrl(category, item.id, urlKey)} className="text-gray-400 hover:text-red-500">×</button>
-                                                                    )}
-                                                                </div>
-                                                            );
+                                                            try {
+                                                                const urlString = typeof urlItem === 'string' ? urlItem : (urlItem && urlItem.url) || '';
+                                                                const urlKey = (urlItem && typeof urlItem === 'object' && urlItem._id) || `url-${item.id}-${idx}`;
+                                                                if (!urlString) return null;
+                                                                return (
+                                                                    <div key={urlKey} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
+                                                                        <a href={urlString} target="_blank" rel="noopener noreferrer" className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2 text-blue-500">
+                                                                            <LucideIcon name="link" size={14} className="mr-1 flex-shrink-0"/>
+                                                                            <span className="truncate">{urlString}</span>
+                                                                        </a>
+                                                                        {isEditMode && (
+                                                                            <button onClick={() => handleDeleteUrl(category, item.id, urlKey)} className="text-gray-400 hover:text-red-500">×</button>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            } catch (e) {
+                                                                console.error('Error rendering URL item:', e);
+                                                                return null;
+                                                            }
                                                         })}
                                                      </div>
 
