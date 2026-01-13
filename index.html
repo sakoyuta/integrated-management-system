@@ -626,12 +626,12 @@
             ],
             // IDを 'chap1', 'chap2'... に統一
             trainingItems: [
-                { id: 'chap1', name: '第一章　原理原則・心構え', category: 'A研修 (デビュー)', description: '営業としてのマインドセット、G HOUSEの理念、お客様への基本姿勢を学ぶ。\n\n【目標】\n・接客デビューできる状態\n・基本動作の習得', documents: [] },
-                { id: 'chap2', name: '第二章　見学説明会（セミナー）', category: 'A研修 (デビュー)', description: 'モデルハウス案内やセミナーでのプレゼンテーションスキルを習得する。\n\n【目標】\n・1ヶ月目でセミナーデビュー\n・標準トークの完遂', documents: [] },
-                { id: 'chap3', name: '第三章　個別相談・提案力', category: 'B研修 (1.5棟/月)', description: 'お客様ごとの課題を解決するヒアリング能力と、最適なプランを提案する力を養う。\n\n【目標】\n・実践スキルの習得\n・ヒアリングからの課題特定', documents: [] },
-                { id: 'chap4', name: '第四章　全体像の把握', category: 'B研修 (1.5棟/月)', description: '資金計画、土地探し、契約から引き渡しまでの全体フローを理解し、お客様をリードする。\n\n【目標】\n・トラブルのない進行管理\n・資金計画の精度向上', documents: [] },
-                { id: 'chap5', name: '第五章　性能知識（YouTube学習）・ショールーム見学', category: 'B研修 (1.5棟/月)', description: 'G HOUSEの核心である高性能（気密・断熱・耐震）を深く理解し、他社との差別化を語れるようにする。YouTube動画教材やショールームでの実地学習を含む。\n\n【目標】\n・性能メリットの言語化\n・競合対策', documents: [] },
-                { id: 'chap6', name: '第六章　成長編（2.5棟/月目標）', category: 'C研修 (独り立ち)', description: '安定して月2.5棟を受注するための高度なクロージング技術と、紹介受注を生む人間力を磨く。C研修を反復継続し、トップセールスを目指す。\n\n【目標】\n・独り立ち\n・コンスタントな受注', documents: [] },
+                { id: 'chap1', name: '第一章　原理原則・心構え', category: 'A研修_デビュー', description: '営業としてのマインドセット、G HOUSEの理念、お客様への基本姿勢を学ぶ。\n\n【目標】\n・接客デビューできる状態\n・基本動作の習得', documents: [] },
+                { id: 'chap2', name: '第二章　見学説明会（セミナー）', category: 'A研修_デビュー', description: 'モデルハウス案内やセミナーでのプレゼンテーションスキルを習得する。\n\n【目標】\n・1ヶ月目でセミナーデビュー\n・標準トークの完遂', documents: [] },
+                { id: 'chap3', name: '第三章　個別相談・提案力', category: 'B研修_1_5棟月', description: 'お客様ごとの課題を解決するヒアリング能力と、最適なプランを提案する力を養う。\n\n【目標】\n・実践スキルの習得\n・ヒアリングからの課題特定', documents: [] },
+                { id: 'chap4', name: '第四章　全体像の把握', category: 'B研修_1_5棟月', description: '資金計画、土地探し、契約から引き渡しまでの全体フローを理解し、お客様をリードする。\n\n【目標】\n・トラブルのない進行管理\n・資金計画の精度向上', documents: [] },
+                { id: 'chap5', name: '第五章　性能知識（YouTube学習）・ショールーム見学', category: 'B研修_1_5棟月', description: 'G HOUSEの核心である高性能（気密・断熱・耐震）を深く理解し、他社との差別化を語れるようにする。YouTube動画教材やショールームでの実地学習を含む。\n\n【目標】\n・性能メリットの言語化\n・競合対策', documents: [] },
+                { id: 'chap6', name: '第六章　成長編（2.5棟/月目標）', category: 'C研修_独り立ち', description: '安定して月2.5棟を受注するための高度なクロージング技術と、紹介受注を生む人間力を磨く。C研修を反復継続し、トップセールスを目指す。\n\n【目標】\n・独り立ち\n・コンスタントな受注', documents: [] },
             ],
             // Progressのキーも 'chap1', 'chap2'... に統一
             progress: {
@@ -735,17 +735,17 @@
 
         // Initial Debut Training Data
         const initialDebutTrainingData = {
-          'A研修 (デビュー)': [
+          'A研修_デビュー': [
             { id: 'da1', title: 'ビジネスマナー基礎', pdfs: [], urls: [] },
             { id: 'da2', title: '会社理念と歴史', pdfs: [], urls: [] },
             { id: 'da3', title: '接客ロールプレイング基礎', pdfs: [], urls: [] }
           ],
-          'B研修 (1.5棟/月)': [
+          'B研修_1_5棟月': [
              { id: 'db1', title: '商品知識詳細', pdfs: [], urls: [] },
              { id: 'db2', title: '資金計画実践', pdfs: [], urls: [] },
              { id: 'db3', title: '競合比較分析', pdfs: [], urls: [] }
           ],
-          'C研修 (独り立ち)': [
+          'C研修_独り立ち': [
              { id: 'dc1', title: 'クロージング技術', pdfs: [], urls: [] },
              { id: 'dc2', title: '紹介営業手法', pdfs: [], urls: [] },
              { id: 'dc3', title: 'トラブルシューティング', pdfs: [], urls: [] }
@@ -1777,9 +1777,9 @@
                                             onChange={(e) => onUpdateItem(item.id, { ...item, category: e.target.value })}
                                             className="text-sm text-gray-700 border-2 border-blue-300 rounded px-2 py-1 w-full focus:border-blue-500 focus:outline-none"
                                         >
-                                            <option value="A研修 (デビュー)">A研修 (デビュー)</option>
-                                            <option value="B研修 (1.5棟/月)">B研修 (1.5棟/月)</option>
-                                            <option value="C研修 (独り立ち)">C研修 (独り立ち)</option>
+                                            <option value="A研修_デビュー">A研修 (デビュー)</option>
+                                            <option value="B研修_1_5棟月">B研修 (1.5棟/月)</option>
+                                            <option value="C研修_独り立ち">C研修 (独り立ち)</option>
                                         </select>
                                     </div>
                                 </div>
@@ -2093,7 +2093,7 @@
                  }, {});
              }, [trainingItems]);
 
-             const categoryOrder = ['A研修 (デビュー)', 'B研修 (1.5棟/月)', 'C研修 (独り立ち)'];
+             const categoryOrder = ['A研修_デビュー', 'B研修_1_5棟月', 'C研修_独り立ち'];
 
              const categoryProgresses = useMemo(() => {
                  return categoryOrder.map(category => {
@@ -2475,10 +2475,17 @@
                         </div>
 
                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                             {['A研修 (デビュー)', 'B研修 (1.5棟/月)', 'C研修 (独り立ち)'].map(category => (
+                             {['A研修_デビュー', 'B研修_1_5棟月', 'C研修_独り立ち'].map(category => {
+                                const displayNames = {
+                                    'A研修_デビュー': 'A研修 (デビュー)',
+                                    'B研修_1_5棟月': 'B研修 (1.5棟/月)',
+                                    'C研修_独り立ち': 'C研修 (独り立ち)'
+                                };
+                                const displayName = displayNames[category] || category;
+                                return (
                                  <div key={category} className="bg-white rounded-xl shadow-md overflow-hidden flex flex-col h-full">
-                                     <div className={`p-4 font-bold text-white text-center text-lg ${category === 'A研修 (デビュー)' ? 'bg-blue-600' : category === 'B研修 (1.5棟/月)' ? 'bg-indigo-600' : 'bg-purple-600'}`}>
-                                         {category}
+                                     <div className={`p-4 font-bold text-white text-center text-lg ${category === 'A研修_デビュー' ? 'bg-blue-600' : category === 'B研修_1_5棟月' ? 'bg-indigo-600' : 'bg-purple-600'}`}>
+                                         {displayName}
                                      </div>
                                      <div className="p-4 flex-1 overflow-y-auto">
                                          <div className="space-y-4">
@@ -2604,7 +2611,8 @@
                                         )}
                                      </div>
                                  </div>
-                             ))}
+                             );
+                             })}
                          </div>
                      </div>
                  </div>
