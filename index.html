@@ -957,19 +957,44 @@
                     <EditableField label="マニュアル (URL)" iconName="link">
                       <div className="space-y-2">
                         {(step.manualUrls || []).map((urlItem, idx) => (
-                          <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 p-2 rounded border border-gray-200">
-                            <div className="flex items-center flex-1 mr-2 min-w-0">
-                              <LucideIcon name="link" size={14} className="mr-2 text-blue-500 flex-shrink-0"/>
-                              <div className="min-w-0 flex-1">
-                                <div className="font-medium text-gray-700 truncate">{urlItem.title || 'タイトルなし'}</div>
-                                <a href={urlItem.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline truncate block text-xs">{urlItem.url}</a>
-                              </div>
+                          <div key={idx} className="text-sm bg-gray-50 p-2 rounded border border-gray-200 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <LucideIcon name="link" size={14} className="text-blue-500 flex-shrink-0"/>
+                              <input
+                                type="text"
+                                value={urlItem.title || ''}
+                                onChange={(e) => {
+                                  const newUrls = [...(step.manualUrls || [])];
+                                  newUrls[idx] = { ...newUrls[idx], title: e.target.value };
+                                  handleFieldChange('manualUrls', newUrls);
+                                }}
+                                placeholder="タイトルを入力..."
+                                className="flex-1 p-1 border border-gray-300 rounded text-sm"
+                              />
+                              <button type="button" onClick={() => {
+                                const newUrls = [...(step.manualUrls || [])];
+                                newUrls.splice(idx, 1);
+                                handleFieldChange('manualUrls', newUrls);
+                              }} className="text-gray-400 hover:text-red-500 flex-shrink-0">×</button>
                             </div>
-                            <button type="button" onClick={() => {
-                              const newUrls = [...(step.manualUrls || [])];
-                              newUrls.splice(idx, 1);
-                              handleFieldChange('manualUrls', newUrls);
-                            }} className="text-gray-400 hover:text-red-500 flex-shrink-0">×</button>
+                            <div className="flex items-center gap-2 pl-5">
+                              <input
+                                type="url"
+                                value={urlItem.url || ''}
+                                onChange={(e) => {
+                                  const newUrls = [...(step.manualUrls || [])];
+                                  newUrls[idx] = { ...newUrls[idx], url: e.target.value };
+                                  handleFieldChange('manualUrls', newUrls);
+                                }}
+                                placeholder="URLを入力..."
+                                className="flex-1 p-1 border border-gray-300 rounded text-sm text-blue-600"
+                              />
+                              {urlItem.url && (
+                                <a href={urlItem.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 flex-shrink-0">
+                                  <LucideIcon name="external-link" size={14}/>
+                                </a>
+                              )}
+                            </div>
                           </div>
                         ))}
                         <div className="border-2 border-dashed border-gray-300 rounded p-3 space-y-2">
@@ -1025,19 +1050,57 @@
                             }} className="text-gray-400 hover:text-red-500">×</button>
                           </div>
                         ))}
-                        <label className="flex items-center justify-center w-full p-3 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-50 hover:border-blue-400 transition-colors text-sm text-gray-500">
-                          <LucideIcon name="upload" size={16} className="mr-2"/> PDFを追加
-                          <input type="file" accept=".pdf" className="hidden" onChange={(e) => {
-                            if (e.target.files[0]) {
-                              const file = e.target.files[0];
+                        <label
+                          className="flex flex-col items-center justify-center w-full p-4 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-50 hover:border-blue-400 transition-colors text-sm text-gray-500"
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.currentTarget.classList.add('bg-blue-50', 'border-blue-400');
+                          }}
+                          onDragLeave={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.currentTarget.classList.remove('bg-blue-50', 'border-blue-400');
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.currentTarget.classList.remove('bg-blue-50', 'border-blue-400');
+                            const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+                            const newPdfs = [];
+                            let loaded = 0;
+                            files.forEach(file => {
                               const reader = new FileReader();
                               reader.onload = (event) => {
-                                const newPdf = { name: file.name, data: event.target.result };
-                                handleFieldChange('pdfs', [...(step.pdfs || []), newPdf]);
+                                newPdfs.push({ name: file.name, data: event.target.result });
+                                loaded++;
+                                if (loaded === files.length) {
+                                  handleFieldChange('pdfs', [...(step.pdfs || []), ...newPdfs]);
+                                }
                               };
                               reader.readAsDataURL(file);
-                              e.target.value = '';
-                            }
+                            });
+                          }}
+                        >
+                          <LucideIcon name="upload" size={20} className="mb-1"/>
+                          <span>PDFを追加</span>
+                          <span className="text-xs text-gray-400 mt-1">クリックまたはドラッグ&ドロップ</span>
+                          <input type="file" accept=".pdf" multiple className="hidden" onChange={(e) => {
+                            const files = Array.from(e.target.files);
+                            const newPdfs = [];
+                            let loaded = 0;
+                            files.forEach(file => {
+                              const reader = new FileReader();
+                              reader.onload = (event) => {
+                                newPdfs.push({ name: file.name, data: event.target.result });
+                                loaded++;
+                                if (loaded === files.length) {
+                                  handleFieldChange('pdfs', [...(step.pdfs || []), ...newPdfs]);
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            });
+                            e.target.value = '';
                           }} />
                         </label>
                       </div>
