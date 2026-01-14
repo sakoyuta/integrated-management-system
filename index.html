@@ -736,19 +736,19 @@
         // Initial Debut Training Data
         const initialDebutTrainingData = {
           'A研修_デビュー': [
-            { id: 'da1', title: 'ビジネスマナー基礎', pdfs: [], urls: [] },
-            { id: 'da2', title: '会社理念と歴史', pdfs: [], urls: [] },
-            { id: 'da3', title: '接客ロールプレイング基礎', pdfs: [], urls: [] }
+            { id: 'da1', title: 'ビジネスマナー基礎', pdfs: [], ppts: [], urls: [] },
+            { id: 'da2', title: '会社理念と歴史', pdfs: [], ppts: [], urls: [] },
+            { id: 'da3', title: '接客ロールプレイング基礎', pdfs: [], ppts: [], urls: [] }
           ],
           'B研修_1_5棟月': [
-             { id: 'db1', title: '商品知識詳細', pdfs: [], urls: [] },
-             { id: 'db2', title: '資金計画実践', pdfs: [], urls: [] },
-             { id: 'db3', title: '競合比較分析', pdfs: [], urls: [] }
+             { id: 'db1', title: '商品知識詳細', pdfs: [], ppts: [], urls: [] },
+             { id: 'db2', title: '資金計画実践', pdfs: [], ppts: [], urls: [] },
+             { id: 'db3', title: '競合比較分析', pdfs: [], ppts: [], urls: [] }
           ],
           'C研修_独り立ち': [
-             { id: 'dc1', title: 'クロージング技術', pdfs: [], urls: [] },
-             { id: 'dc2', title: '紹介営業手法', pdfs: [], urls: [] },
-             { id: 'dc3', title: 'トラブルシューティング', pdfs: [], urls: [] }
+             { id: 'dc1', title: 'クロージング技術', pdfs: [], ppts: [], urls: [] },
+             { id: 'dc2', title: '紹介営業手法', pdfs: [], ppts: [], urls: [] },
+             { id: 'dc3', title: 'トラブルシューティング', pdfs: [], ppts: [], urls: [] }
           ]
         };
 
@@ -2596,6 +2596,68 @@
                  });
              };
 
+             const handleUploadPpt = async (category, itemId, file) => {
+                 try {
+                     const uploadedFile = await mockApi.uploadFile(file);
+                     const pptWithId = {...uploadedFile, _id: `ppt_${Date.now()}_${Math.random()}`};
+                     setTrainingData(prev => {
+                         const newData = {...prev};
+                         newData[category] = (newData[category] || []).map(item => {
+                             if(item.id === itemId) {
+                                 return {...item, ppts: [...(item.ppts || []), pptWithId]};
+                             }
+                             return item;
+                         });
+                         return newData;
+                     });
+                     showToast('PowerPointを追加しました', 'success');
+                 } catch (e) {
+                     showToast('アップロードに失敗しました', 'error');
+                 }
+             };
+
+             const handleDeletePpt = (category, itemId, pptId) => {
+                 showModal('PowerPoint削除', 'このPowerPointを削除してもよろしいですか？', () => {
+                     setTrainingData(prev => {
+                         const newData = {...prev};
+                         newData[category] = (newData[category] || []).map(item => {
+                             if(item.id === itemId) {
+                                 let newPpts = (item.ppts || []).filter(ppt => ppt._id !== pptId);
+                                 if (newPpts.length === (item.ppts || []).length && pptId.startsWith('ppt-')) {
+                                     const idx = parseInt(pptId.split('-').pop());
+                                     if (!isNaN(idx)) {
+                                         newPpts = [...(item.ppts || [])];
+                                         newPpts.splice(idx, 1);
+                                     }
+                                 }
+                                 return {...item, ppts: newPpts};
+                             }
+                             return item;
+                         });
+                         return newData;
+                     });
+                     showToast('PowerPointを削除しました', 'success');
+                     closeModal();
+                 });
+             };
+
+             const handleOpenPpt = async (doc) => {
+                 try {
+                     if (doc.url && doc.url.startsWith('data:')) {
+                         const blobUrl = dataUrlToBlobUrl(doc.url);
+                         const link = document.createElement('a');
+                         link.href = blobUrl;
+                         link.download = doc.name;
+                         link.click();
+                         setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+                         return;
+                     }
+                     alert('PowerPointをダウンロードします: ' + doc.name);
+                 } catch (e) {
+                     alert('ファイルを開けませんでした');
+                 }
+             };
+
              const handleAddUrl = (category, itemId, url) => {
                  if (!url) return;
                  // Create URL object with unique ID
@@ -2660,7 +2722,7 @@
                  const newId = `new_${Date.now()}`;
                  setTrainingData(prev => ({
                      ...prev,
-                     [category]: [...(prev[category] || []), { id: newId, title: '新規項目', pdfs: [], urls: [] }]
+                     [category]: [...(prev[category] || []), { id: newId, title: '新規項目', pdfs: [], ppts: [], urls: [] }]
                  }));
              };
 
@@ -2795,11 +2857,42 @@
                                                              }
                                                          })}
                                                      </div>
-                                                    {/* Upload Button */}
+                                                    {/* PDF Upload Button */}
                                                     {isEditMode && (
                                                         <label className="flex items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-blue-400 transition-colors text-xs text-gray-500 mb-3">
-                                                            <LucideIcon name="upload" size={14} className="mr-1"/> 資料を追加
+                                                            <LucideIcon name="upload" size={14} className="mr-1"/> PDFを追加
                                                             <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files[0] && handleUploadPdf(category, item.id, e.target.files[0])} />
+                                                        </label>
+                                                    )}
+
+                                                     {/* PowerPoint List */}
+                                                     <div className="space-y-2 mb-3">
+                                                         {(item.ppts || []).map((ppt, idx) => {
+                                                             try {
+                                                                 if (!ppt || !ppt.name) return null;
+                                                                 const pptKey = (ppt && ppt._id) || `ppt-${item.id}-${idx}`;
+                                                                 return (
+                                                                     <div key={pptKey} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
+                                                                         <div onClick={() => handleOpenPpt(ppt)} className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2">
+                                                                             <LucideIcon name="presentation" size={14} className="mr-1 text-orange-500 flex-shrink-0"/>
+                                                                             <span className="truncate">{ppt.name}</span>
+                                                                         </div>
+                                                                        {isEditMode && (
+                                                                            <button type="button" onClick={() => handleDeletePpt(category, item.id, pptKey)} className="text-gray-400 hover:text-red-500">×</button>
+                                                                        )}
+                                                                     </div>
+                                                                 );
+                                                             } catch (e) {
+                                                                 console.error('Error rendering PPT item:', e);
+                                                                 return null;
+                                                             }
+                                                         })}
+                                                     </div>
+                                                    {/* PowerPoint Upload Button */}
+                                                    {isEditMode && (
+                                                        <label className="flex items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-orange-400 transition-colors text-xs text-gray-500 mb-3">
+                                                            <LucideIcon name="upload" size={14} className="mr-1"/> PowerPointを追加
+                                                            <input type="file" accept=".ppt,.pptx,.pptm,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" className="hidden" onChange={(e) => e.target.files[0] && handleUploadPpt(category, item.id, e.target.files[0])} />
                                                         </label>
                                                     )}
 
