@@ -939,11 +939,24 @@
                     </EditableField>
 
                     <EditableField label="マニュアル (URL)" iconName="link">
-                      <AutoResizeTextarea
-                        value={step.manualUrl}
-                        onChange={(e) => handleFieldChange('manualUrl', e.target.value)}
-                        placeholder="URLを入力..."
-                      />
+                      <div className="space-y-2">
+                        <AutoResizeTextarea
+                          value={step.manualUrl}
+                          onChange={(e) => handleFieldChange('manualUrl', e.target.value)}
+                          placeholder="URLを入力..."
+                        />
+                        {step.manualUrl && (
+                          <a
+                            href={step.manualUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            <LucideIcon name="external-link" size={14} className="mr-1"/>
+                            リンクを開く
+                          </a>
+                        )}
+                      </div>
                     </EditableField>
 
                     <EditableField label="資料 (PDF)" iconName="file-text">
@@ -2736,25 +2749,296 @@
         };
 
         // ==========================================
+        //  5.5. StockCon Info App
+        // ==========================================
+
+        const initialStockConData = [
+            { id: 1, name: 'サンプル会社A', fundingPlanPdfs: [], planPdfs: [], otherInfo: '' },
+            { id: 2, name: 'サンプル会社B', fundingPlanPdfs: [], planPdfs: [], otherInfo: '' },
+        ];
+
+        const StockConInfoApp = () => {
+            const [companies, setCompanies, isLoading] = useFirebaseState('stockConCompanies', initialStockConData);
+            const [selectedCompanyId, setSelectedCompanyId] = useState(null);
+            const [isEditMode, setIsEditMode] = useState(false);
+            const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
+            const [toast, setToast] = useState({ message: '', type: 'success' });
+
+            useEffect(() => {
+                if (!isLoading && companies.length > 0 && !selectedCompanyId) {
+                    setSelectedCompanyId(companies[0]?.id);
+                }
+            }, [isLoading, companies, selectedCompanyId]);
+
+            const selectedCompany = companies.find(c => c.id === selectedCompanyId);
+            const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
+            const closeModal = () => setModalState({ ...modalState, isOpen: false });
+            const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast({ message: '', type: 'success' }), 3000); };
+
+            const handleAddCompany = () => {
+                const newId = Math.max(...companies.map(c => c.id), 0) + 1;
+                const newCompany = { id: newId, name: '新規会社', fundingPlanPdfs: [], planPdfs: [], otherInfo: '' };
+                setCompanies([...companies, newCompany]);
+                setSelectedCompanyId(newId);
+                showToast('会社を追加しました', 'success');
+            };
+
+            const handleUpdateCompany = (id, field, value) => {
+                setCompanies(companies.map(c => c.id === id ? { ...c, [field]: value } : c));
+            };
+
+            const handleDeleteCompany = (id) => {
+                const company = companies.find(c => c.id === id);
+                showModal('会社削除', `「${company?.name}」を削除してもよろしいですか？`, () => {
+                    const newCompanies = companies.filter(c => c.id !== id);
+                    setCompanies(newCompanies);
+                    if (selectedCompanyId === id) setSelectedCompanyId(newCompanies[0]?.id || null);
+                    closeModal();
+                    showToast('会社を削除しました', 'success');
+                });
+            };
+
+            const handlePdfUpload = (companyId, field, file) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const newPdf = { name: file.name, data: event.target.result };
+                    const company = companies.find(c => c.id === companyId);
+                    const currentPdfs = company[field] || [];
+                    handleUpdateCompany(companyId, field, [...currentPdfs, newPdf]);
+                    showToast('PDFを追加しました', 'success');
+                };
+                reader.readAsDataURL(file);
+            };
+
+            const handlePdfDelete = (companyId, field, index) => {
+                const company = companies.find(c => c.id === companyId);
+                const newPdfs = [...(company[field] || [])];
+                newPdfs.splice(index, 1);
+                handleUpdateCompany(companyId, field, newPdfs);
+                showToast('PDFを削除しました', 'success');
+            };
+
+            const handleOpenPdf = (pdf) => {
+                const link = document.createElement('a');
+                link.href = pdf.data;
+                link.download = pdf.name;
+                link.click();
+            };
+
+            if (isLoading) {
+                return (
+                    <div className="flex items-center justify-center h-full">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600 mx-auto mb-4"></div>
+                            <p className="text-gray-600">読み込み中...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="bg-gray-100 min-h-full font-sans p-6 overflow-y-auto">
+                    <Toast {...toast} onDismiss={() => setToast({ ...toast, message: '' })} />
+                    <ConfirmModal {...modalState} onCancel={closeModal} />
+                    <div className="max-w-7xl mx-auto">
+                        <div className="flex items-center justify-between mb-6">
+                            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                <LucideIcon name="building" className="text-orange-600" size={28}/> ストコン情報
+                            </h1>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setIsEditMode(!isEditMode)}
+                                    className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${isEditMode ? 'bg-green-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                                >
+                                    <LucideIcon name={isEditMode ? "check" : "edit-3"} size={16}/>
+                                    {isEditMode ? '編集完了' : '編集'}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-6">
+                            {/* 会社一覧 */}
+                            <div className="w-80 flex-shrink-0">
+                                <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                                    <div className="bg-orange-600 text-white p-4 font-bold flex items-center justify-between">
+                                        <span><LucideIcon name="list" size={18} className="inline mr-2"/>会社一覧</span>
+                                        {isEditMode && (
+                                            <button onClick={handleAddCompany} className="bg-white/20 hover:bg-white/30 p-1.5 rounded-lg">
+                                                <LucideIcon name="plus" size={18}/>
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="max-h-[calc(100vh-280px)] overflow-y-auto">
+                                        {companies.map(company => (
+                                            <div
+                                                key={company.id}
+                                                onClick={() => setSelectedCompanyId(company.id)}
+                                                className={`p-4 cursor-pointer border-b border-gray-100 flex items-center justify-between group transition-colors ${selectedCompanyId === company.id ? 'bg-orange-50 border-l-4 border-l-orange-600' : 'hover:bg-gray-50'}`}
+                                            >
+                                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                                    <LucideIcon name="building-2" size={18} className="text-gray-400 flex-shrink-0"/>
+                                                    {isEditMode ? (
+                                                        <input
+                                                            type="text"
+                                                            value={company.name}
+                                                            onChange={(e) => handleUpdateCompany(company.id, 'name', e.target.value)}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="flex-1 bg-transparent border-b border-gray-300 focus:border-orange-500 focus:outline-none font-medium"
+                                                        />
+                                                    ) : (
+                                                        <span className="font-medium text-gray-700 truncate">{company.name}</span>
+                                                    )}
+                                                </div>
+                                                {isEditMode && (
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteCompany(company.id); }}
+                                                        className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    >
+                                                        <LucideIcon name="trash-2" size={16}/>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                        {companies.length === 0 && (
+                                            <div className="p-8 text-center text-gray-400">
+                                                <LucideIcon name="inbox" size={32} className="mx-auto mb-2"/>
+                                                <p>会社がありません</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 会社詳細 */}
+                            <div className="flex-1">
+                                {selectedCompany ? (
+                                    <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                                        <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6">
+                                            <h2 className="text-xl font-bold flex items-center gap-2">
+                                                <LucideIcon name="building-2" size={24}/>
+                                                {selectedCompany.name}
+                                            </h2>
+                                        </div>
+                                        <div className="p-6 space-y-6">
+                                            {/* 資金計画書 */}
+                                            <div className="border rounded-lg p-4">
+                                                <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                                    <LucideIcon name="calculator" size={18} className="text-blue-600"/>
+                                                    資金計画書
+                                                </h3>
+                                                <div className="space-y-2 mb-3">
+                                                    {(selectedCompany.fundingPlanPdfs || []).map((pdf, idx) => (
+                                                        <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 p-3 rounded border border-gray-200">
+                                                            <div onClick={() => handleOpenPdf(pdf)} className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2">
+                                                                <LucideIcon name="file-text" size={16} className="mr-2 text-red-500 flex-shrink-0"/>
+                                                                <span className="truncate">{pdf.name}</span>
+                                                            </div>
+                                                            {isEditMode && (
+                                                                <button onClick={() => handlePdfDelete(selectedCompany.id, 'fundingPlanPdfs', idx)} className="text-gray-400 hover:text-red-500">
+                                                                    <LucideIcon name="x" size={16}/>
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                {isEditMode && (
+                                                    <label className="flex items-center justify-center w-full p-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 hover:border-blue-400 transition-colors text-sm text-gray-500">
+                                                        <LucideIcon name="upload" size={16} className="mr-2"/> 資金計画書PDFを追加
+                                                        <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files[0] && handlePdfUpload(selectedCompany.id, 'fundingPlanPdfs', e.target.files[0])} />
+                                                    </label>
+                                                )}
+                                                {!isEditMode && (selectedCompany.fundingPlanPdfs || []).length === 0 && (
+                                                    <p className="text-gray-400 text-sm">資金計画書が登録されていません</p>
+                                                )}
+                                            </div>
+
+                                            {/* プラン */}
+                                            <div className="border rounded-lg p-4">
+                                                <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                                    <LucideIcon name="layout" size={18} className="text-green-600"/>
+                                                    プラン
+                                                </h3>
+                                                <div className="space-y-2 mb-3">
+                                                    {(selectedCompany.planPdfs || []).map((pdf, idx) => (
+                                                        <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 p-3 rounded border border-gray-200">
+                                                            <div onClick={() => handleOpenPdf(pdf)} className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2">
+                                                                <LucideIcon name="file-text" size={16} className="mr-2 text-red-500 flex-shrink-0"/>
+                                                                <span className="truncate">{pdf.name}</span>
+                                                            </div>
+                                                            {isEditMode && (
+                                                                <button onClick={() => handlePdfDelete(selectedCompany.id, 'planPdfs', idx)} className="text-gray-400 hover:text-red-500">
+                                                                    <LucideIcon name="x" size={16}/>
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                {isEditMode && (
+                                                    <label className="flex items-center justify-center w-full p-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 hover:border-green-400 transition-colors text-sm text-gray-500">
+                                                        <LucideIcon name="upload" size={16} className="mr-2"/> プランPDFを追加
+                                                        <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files[0] && handlePdfUpload(selectedCompany.id, 'planPdfs', e.target.files[0])} />
+                                                    </label>
+                                                )}
+                                                {!isEditMode && (selectedCompany.planPdfs || []).length === 0 && (
+                                                    <p className="text-gray-400 text-sm">プランが登録されていません</p>
+                                                )}
+                                            </div>
+
+                                            {/* その他情報 */}
+                                            <div className="border rounded-lg p-4">
+                                                <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                                    <LucideIcon name="info" size={18} className="text-purple-600"/>
+                                                    その他情報
+                                                </h3>
+                                                {isEditMode ? (
+                                                    <textarea
+                                                        value={selectedCompany.otherInfo || ''}
+                                                        onChange={(e) => handleUpdateCompany(selectedCompany.id, 'otherInfo', e.target.value)}
+                                                        placeholder="その他の情報を入力..."
+                                                        className="w-full p-3 border border-gray-300 rounded-lg text-sm min-h-[120px] focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                                    />
+                                                ) : (
+                                                    <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                                                        {selectedCompany.otherInfo || <span className="text-gray-400">その他情報が登録されていません</span>}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="bg-white rounded-xl shadow-md p-12 text-center text-gray-400">
+                                        <LucideIcon name="mouse-pointer-click" size={48} className="mx-auto mb-4"/>
+                                        <p>会社を選択してください</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
         //  6. Root App & Unified App
         // ==========================================
 
         const HomePage = ({ onNavigate }) => (
             <div className="h-full overflow-y-auto bg-gradient-to-br from-slate-50 to-blue-50 p-8 flex items-center justify-center">
-              <div className="max-w-5xl w-full">
+              <div className="max-w-6xl w-full">
                 <h1 className="text-4xl font-bold text-center text-slate-800 mb-12">G-house | 営業サイト</h1>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                     {[
                         { id: 'sales', title: '営業育成管理', icon: <LucideIcon name="users" className="text-blue-600" size={32}/>, desc: 'スタッフのスキル習得状況、AIロープレ支援' },
                         { id: 'flow', title: '営業作業フロー', icon: <LucideIcon name="file-text" className="text-green-600" size={32}/>, desc: '契約までの標準工程とマニュアル管理' },
                         { id: 'bank', title: '各種銀行', icon: <LucideIcon name="dollar-sign" className="text-yellow-600" size={32}/>, desc: '提携金融機関の金利・手数料・必要書類DB' },
                         { id: 'debut', title: 'デビュー研修一覧', icon: <LucideIcon name="graduation-cap" className="text-indigo-600" size={32}/>, desc: '新人営業マン向けの標準研修カリキュラム' },
+                        { id: 'stockcon', title: 'ストコン情報', icon: <LucideIcon name="building" className="text-orange-600" size={32}/>, desc: '会社別の資金計画書・プラン情報管理' },
                     ].map(card => (
-                        <div key={card.id} onClick={() => onNavigate(card.id)} className="bg-white p-8 rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer border-t-4 border-blue-500 transform hover:-translate-y-1 flex flex-col h-full">
-                            <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mb-6">{card.icon}</div>
-                            <h2 className="text-xl font-bold text-slate-800 mb-3">{card.title}</h2>
-                            <p className="text-gray-500 mb-6 flex-grow text-sm">{card.desc}</p>
-                            <div className="flex items-center text-blue-600 font-bold mt-auto">開く <LucideIcon name="chevron-down" className="ml-1 -rotate-90" size={16}/></div>
+                        <div key={card.id} onClick={() => onNavigate(card.id)} className="bg-white p-6 rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer border-t-4 border-blue-500 transform hover:-translate-y-1 flex flex-col h-full">
+                            <div className="bg-slate-50 w-14 h-14 rounded-full flex items-center justify-center mb-4">{card.icon}</div>
+                            <h2 className="text-lg font-bold text-slate-800 mb-2">{card.title}</h2>
+                            <p className="text-gray-500 mb-4 flex-grow text-sm">{card.desc}</p>
+                            <div className="flex items-center text-blue-600 font-bold mt-auto text-sm">開く <LucideIcon name="chevron-down" className="ml-1 -rotate-90" size={16}/></div>
                         </div>
                     ))}
                 </div>
@@ -2772,9 +3056,9 @@
                   <div className="flex items-center h-16">
                     <div className="text-xl font-bold text-gray-800 mr-8">G-house | 営業サイト</div>
                     <div className="flex items-center space-x-2">
-                       {['home', 'sales', 'flow', 'bank', 'debut'].map(view => (
-                           <button key={view} onClick={() => setCurrentView(view)} className={`px-4 py-2 rounded-md font-medium transition-colors ${currentView === view ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-                             {view === 'home' ? 'ホーム' : view === 'sales' ? '営業育成' : view === 'flow' ? '営業フロー' : view === 'bank' ? '各種銀行' : 'デビュー研修'}
+                       {['home', 'sales', 'flow', 'bank', 'debut', 'stockcon'].map(view => (
+                           <button key={view} onClick={() => setCurrentView(view)} className={`px-3 py-2 rounded-md font-medium transition-colors text-sm ${currentView === view ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+                             {view === 'home' ? 'ホーム' : view === 'sales' ? '営業育成' : view === 'flow' ? '営業フロー' : view === 'bank' ? '各種銀行' : view === 'debut' ? 'デビュー研修' : 'ストコン情報'}
                            </button>
                        ))}
                     </div>
@@ -2789,6 +3073,7 @@
                     {currentView === 'flow' && <FlowManagementApp />}
                     {currentView === 'bank' && <BankManagementApp />}
                     {currentView === 'debut' && <DebutTrainingApp />}
+                    {currentView === 'stockcon' && <StockConInfoApp />}
                 </ErrorBoundary>
               </div>
             </div>
