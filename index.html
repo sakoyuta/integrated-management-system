@@ -652,53 +652,53 @@
 
         // Flow Data (省略せず記述)
         const initialFlowSteps = [
-            { id: 101, days: "随時", title: "資料請求対応", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 102, days: "", title: "紹介制度（反響処理）", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 103, days: "", title: "顧客管理", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 104, days: "0日", title: "セミナー資料準備・モデルハウス備品準備", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 1, days: "", title: "モデルハウス見学説明会", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 2, days: "", title: "Gハウス限定会員入会", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 105, days: "", title: "会員へお礼連絡", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 3, days: "30日", title: "初回面談", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 106, days: "", title: "事前審査", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 4, days: "", title: "土地探し", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 5, days: "", title: "いえプロ送客", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 107, days: "60日", title: "商談2", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 108, days: "", title: "商談3", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 6, days: "", title: "建築申込（3万円）", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 109, days: "", title: "建築申込金の返金申し込み対応", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 110, days: "", title: "建築申込金の返金時の営業事務側返金対応", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 111, days: "", title: "新規プラン依頼（業者へ見積もり依頼）", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 7, days: "", title: "プラン提案", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 34, days: "", title: "契約内定 (内定報告)", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `内定が決まった際に下記内容を報告する。\n\n▪️お客様名：\n▪️契約日　：\n▪️時間　_：\n▪️契約場所：\n▪️初回ヒアリング予定日：\n▪️打ち合わせ希望店舗　：\n▪️打ち合わせ可能曜日　：\n▪️間取り確定日数　　　：\n▪️商品名　：\n▪️キャンペーン内容　　：\n▪️2026年7月末完成案件か：\n▪️銀行名　：\n▪️本申し込みに建築確認済証が必要か：\n▪️着工金に建築確認済証が必要か：\n▪️最終金の金消に表題登記完了が必要か：\n▪️最終金の手続きは検査済証が必要か：\n▪️解体業者：\n解体工期：\n▪️測量日　：\n▪️農地転用や市街化調整区域、43申請など：\n▪️土地決済日：\n▪️造成完了日：\n▪️分筆完了日、誰が分筆するか：\n▪️懸念事項　：\n▪️LIFEXの場合のプラン番号：`, manualUrl: "", pdfs: [] },
-            { id: 13, days: "", title: "本審査", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 112, days: "", title: "ダンドリワークの作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 8, days: "", title: "契約前資料の準備", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 113, days: "", title: "請負契約書作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 12, days: "", title: "請負契約", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 114, days: "90日", title: "契約書締結後の処理", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 115, days: "91日", title: "営業コンシェルジュのお客様LINEグループへ参加", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 116, days: "", title: "お申し出発生時の対応", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 117, days: "", title: "各種申請事項", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 118, days: "120日", title: "間取り変更資料作成", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 119, days: "", title: "業者賞金証明書提出", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 120, days: "", title: "変更契約書作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 25, days: "150日", title: "変更契約", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.変更契約時に打合せ時に確定した費用の確認...`, manualUrl: "", pdfs: [] },
-            { id: 121, days: "", title: "仮ポイント依頼", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 122, days: "180日", title: "着工金入金手続き", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 123, days: "", title: "着工金入金", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.変更契約時にご案内しているが着工5日前に...`, manualUrl: "", pdfs: [] },
-            { id: 124, days: "", title: "補助金申請", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 125, days: "210日", title: "上棟金入金手続き", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 126, days: "", title: "上棟金入金", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.手続きは着工金と同様...`, manualUrl: "", pdfs: [] },
-            { id: 127, days: "", title: "上棟立会連絡 (LINEコンシェルジュ)", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "LINEコンシェルジュにてお客様へ上棟立会連絡を行う", manualUrl: "", pdfs: [] },
-            { id: 128, days: "240日", title: "最終立会", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 129, days: "", title: "精算書確認", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 130, days: "270日", title: "最終金入金確認", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.引渡し45日前になれば引渡し案内資料をお客様へ...`, manualUrl: "", pdfs: [] },
-            { id: 131, days: "300日", title: "最終金入金手続き", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 132, days: "", title: "気密測定結果送付 (LINE)", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "気密測定結果をお客様へLINEで送付する", manualUrl: "", pdfs: [] },
-            { id: 133, days: "", title: "引渡しBOX作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
-            { id: 33, days: "330日", title: "お引渡し", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.鍵渡しの定義は最終金確認後...`, manualUrl: "", pdfs: [] },
-            { id: 134, days: "", title: "引渡し後書類送付", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] },
+            { id: 101, days: "随時", title: "資料請求対応", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 102, days: "", title: "紹介制度（反響処理）", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 103, days: "", title: "顧客管理", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 104, days: "0日", title: "セミナー資料準備・モデルハウス備品準備", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 1, days: "", title: "モデルハウス見学説明会", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 2, days: "", title: "Gハウス限定会員入会", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 105, days: "", title: "会員へお礼連絡", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 3, days: "30日", title: "初回面談", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 106, days: "", title: "事前審査", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 4, days: "", title: "土地探し", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 5, days: "", title: "いえプロ送客", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 107, days: "60日", title: "商談2", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 108, days: "", title: "商談3", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 6, days: "", title: "建築申込（3万円）", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 109, days: "", title: "建築申込金の返金申し込み対応", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 110, days: "", title: "建築申込金の返金時の営業事務側返金対応", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 111, days: "", title: "新規プラン依頼（業者へ見積もり依頼）", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 7, days: "", title: "プラン提案", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 34, days: "", title: "契約内定 (内定報告)", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `内定が決まった際に下記内容を報告する。\n\n▪️お客様名：\n▪️契約日　：\n▪️時間　_：\n▪️契約場所：\n▪️初回ヒアリング予定日：\n▪️打ち合わせ希望店舗　：\n▪️打ち合わせ可能曜日　：\n▪️間取り確定日数　　　：\n▪️商品名　：\n▪️キャンペーン内容　　：\n▪️2026年7月末完成案件か：\n▪️銀行名　：\n▪️本申し込みに建築確認済証が必要か：\n▪️着工金に建築確認済証が必要か：\n▪️最終金の金消に表題登記完了が必要か：\n▪️最終金の手続きは検査済証が必要か：\n▪️解体業者：\n解体工期：\n▪️測量日　：\n▪️農地転用や市街化調整区域、43申請など：\n▪️土地決済日：\n▪️造成完了日：\n▪️分筆完了日、誰が分筆するか：\n▪️懸念事項　：\n▪️LIFEXの場合のプラン番号：`, manualUrls: [], pdfs: [] },
+            { id: 13, days: "", title: "本審査", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 112, days: "", title: "ダンドリワークの作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 8, days: "", title: "契約前資料の準備", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 113, days: "", title: "請負契約書作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 12, days: "", title: "請負契約", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 114, days: "90日", title: "契約書締結後の処理", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 115, days: "91日", title: "営業コンシェルジュのお客様LINEグループへ参加", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 116, days: "", title: "お申し出発生時の対応", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 117, days: "", title: "各種申請事項", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 118, days: "120日", title: "間取り変更資料作成", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 119, days: "", title: "業者賞金証明書提出", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 120, days: "", title: "変更契約書作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 25, days: "150日", title: "変更契約", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.変更契約時に打合せ時に確定した費用の確認...`, manualUrls: [], pdfs: [] },
+            { id: 121, days: "", title: "仮ポイント依頼", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 122, days: "180日", title: "着工金入金手続き", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 123, days: "", title: "着工金入金", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.変更契約時にご案内しているが着工5日前に...`, manualUrls: [], pdfs: [] },
+            { id: 124, days: "", title: "補助金申請", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 125, days: "210日", title: "上棟金入金手続き", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 126, days: "", title: "上棟金入金", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.手続きは着工金と同様...`, manualUrls: [], pdfs: [] },
+            { id: 127, days: "", title: "上棟立会連絡 (LINEコンシェルジュ)", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "LINEコンシェルジュにてお客様へ上棟立会連絡を行う", manualUrls: [], pdfs: [] },
+            { id: 128, days: "240日", title: "最終立会", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 129, days: "", title: "精算書確認", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 130, days: "270日", title: "最終金入金確認", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.引渡し45日前になれば引渡し案内資料をお客様へ...`, manualUrls: [], pdfs: [] },
+            { id: 131, days: "300日", title: "最終金入金手続き", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 132, days: "", title: "気密測定結果送付 (LINE)", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "気密測定結果をお客様へLINEで送付する", manualUrls: [], pdfs: [] },
+            { id: 133, days: "", title: "引渡しBOX作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 33, days: "330日", title: "お引渡し", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.鍵渡しの定義は最終金確認後...`, manualUrls: [], pdfs: [] },
+            { id: 134, days: "", title: "引渡し後書類送付", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
         ];
 
         const bankTemplate = {
@@ -956,22 +956,52 @@
 
                     <EditableField label="マニュアル (URL)" iconName="link">
                       <div className="space-y-2">
-                        <AutoResizeTextarea
-                          value={step.manualUrl}
-                          onChange={(e) => handleFieldChange('manualUrl', e.target.value)}
-                          placeholder="URLを入力..."
-                        />
-                        {step.manualUrl && (
-                          <a
-                            href={step.manualUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                        {(step.manualUrls || []).map((urlItem, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 p-2 rounded border border-gray-200">
+                            <div className="flex items-center flex-1 mr-2 min-w-0">
+                              <LucideIcon name="link" size={14} className="mr-2 text-blue-500 flex-shrink-0"/>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium text-gray-700 truncate">{urlItem.title || 'タイトルなし'}</div>
+                                <a href={urlItem.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline truncate block text-xs">{urlItem.url}</a>
+                              </div>
+                            </div>
+                            <button type="button" onClick={() => {
+                              const newUrls = [...(step.manualUrls || [])];
+                              newUrls.splice(idx, 1);
+                              handleFieldChange('manualUrls', newUrls);
+                            }} className="text-gray-400 hover:text-red-500 flex-shrink-0">×</button>
+                          </div>
+                        ))}
+                        <div className="border-2 border-dashed border-gray-300 rounded p-3 space-y-2">
+                          <input
+                            type="text"
+                            id={`url-title-input-${step.id}`}
+                            placeholder="タイトルを入力..."
+                            className="w-full p-2 border border-gray-300 rounded text-sm"
+                          />
+                          <input
+                            type="url"
+                            id={`url-input-${step.id}`}
+                            placeholder="URLを入力..."
+                            className="w-full p-2 border border-gray-300 rounded text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const titleInput = document.getElementById(`url-title-input-${step.id}`);
+                              const urlInput = document.getElementById(`url-input-${step.id}`);
+                              if (urlInput.value) {
+                                const newUrl = { title: titleInput.value || '', url: urlInput.value };
+                                handleFieldChange('manualUrls', [...(step.manualUrls || []), newUrl]);
+                                titleInput.value = '';
+                                urlInput.value = '';
+                              }
+                            }}
+                            className="w-full p-2 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition-colors flex items-center justify-center"
                           >
-                            <LucideIcon name="external-link" size={14} className="mr-1"/>
-                            リンクを開く
-                          </a>
-                        )}
+                            <LucideIcon name="plus" size={16} className="mr-1"/> URLを追加
+                          </button>
+                        </div>
                       </div>
                     </EditableField>
 
@@ -1053,17 +1083,24 @@
                         <div className="mt-1 whitespace-pre-wrap">{step.procedure}</div>
                       </div>
                     )}
-                    {step.manualUrl && (
+                    {step.manualUrls && step.manualUrls.length > 0 && (
                       <div className="text-sm">
                         <span className="font-semibold">マニュアル:</span>
-                        <a
-                          href={step.manualUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline ml-1"
-                        >
-                          {step.manualUrl}
-                        </a>
+                        <div className="mt-2 space-y-1">
+                          {step.manualUrls.map((urlItem, idx) => (
+                            <div key={idx} className="flex items-center">
+                              <LucideIcon name="link" size={14} className="mr-1 text-blue-500"/>
+                              <a
+                                href={urlItem.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline"
+                              >
+                                {urlItem.title || urlItem.url}
+                              </a>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                     {step.pdfs && step.pdfs.length > 0 && (
@@ -1129,7 +1166,7 @@
 
             const handleAddStep = () => {
                 const newId = Math.max(...flowSteps.map(s => s.id), 0) + 1;
-                const newStep = { id: newId, title: "新規ステップ", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrl: "", pdfs: [] };
+                const newStep = { id: newId, title: "新規ステップ", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] };
                 setFlowSteps([...flowSteps, newStep]);
                 setSelectedStepId(newId);
             };
