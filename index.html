@@ -2859,8 +2859,20 @@
                                                      </div>
                                                     {/* PDF Upload Button */}
                                                     {isEditMode && (
-                                                        <label className="flex items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-blue-400 transition-colors text-xs text-gray-500 mb-3">
-                                                            <LucideIcon name="upload" size={14} className="mr-1"/> PDFを追加
+                                                        <label
+                                                            className="flex flex-col items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-blue-400 transition-colors text-xs text-gray-500 mb-3"
+                                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add('bg-blue-50', 'border-blue-400'); }}
+                                                            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('bg-blue-50', 'border-blue-400'); }}
+                                                            onDrop={(e) => {
+                                                                e.preventDefault(); e.stopPropagation();
+                                                                e.currentTarget.classList.remove('bg-blue-50', 'border-blue-400');
+                                                                const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf' || f.name.endsWith('.pdf'));
+                                                                files.forEach(file => handleUploadPdf(category, item.id, file));
+                                                            }}
+                                                        >
+                                                            <LucideIcon name="upload" size={14} className="mb-1"/>
+                                                            <span>PDFを追加</span>
+                                                            <span className="text-gray-400" style={{fontSize: '10px'}}>ドラッグ&ドロップ可</span>
                                                             <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files[0] && handleUploadPdf(category, item.id, e.target.files[0])} />
                                                         </label>
                                                     )}
@@ -2890,9 +2902,21 @@
                                                      </div>
                                                     {/* PowerPoint Upload Button */}
                                                     {isEditMode && (
-                                                        <label className="flex items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-orange-400 transition-colors text-xs text-gray-500 mb-3">
-                                                            <LucideIcon name="upload" size={14} className="mr-1"/> PowerPointを追加
-                                                            <input type="file" accept=".ppt,.pptx,.pptm,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" className="hidden" onChange={(e) => e.target.files[0] && handleUploadPpt(category, item.id, e.target.files[0])} />
+                                                        <label
+                                                            className="flex flex-col items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-orange-400 transition-colors text-xs text-gray-500 mb-3"
+                                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add('bg-orange-50', 'border-orange-400'); }}
+                                                            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('bg-orange-50', 'border-orange-400'); }}
+                                                            onDrop={(e) => {
+                                                                e.preventDefault(); e.stopPropagation();
+                                                                e.currentTarget.classList.remove('bg-orange-50', 'border-orange-400');
+                                                                const files = Array.from(e.dataTransfer.files).filter(f => f.name.match(/\.(ppt|pptx|pptm)$/i));
+                                                                files.forEach(file => handleUploadPpt(category, item.id, file));
+                                                            }}
+                                                        >
+                                                            <LucideIcon name="upload" size={14} className="mb-1"/>
+                                                            <span>PowerPointを追加</span>
+                                                            <span className="text-gray-400" style={{fontSize: '10px'}}>ドラッグ&ドロップ可</span>
+                                                            <input type="file" accept=".ppt,.pptx,.pptm" className="hidden" onChange={(e) => e.target.files[0] && handleUploadPpt(category, item.id, e.target.files[0])} />
                                                         </label>
                                                     )}
 
