@@ -183,16 +183,20 @@
                     const dbRef = database.ref(path);
                     console.log('=== Saving to Firebase ===');
                     console.log('Path:', path);
-                    console.log('Data:', JSON.stringify(finalState, null, 2));
 
-                    dbRef.set(finalState)
-                        .then(() => {
-                            console.log('✓ Firebase save successful');
-                        })
-                        .catch(error => {
-                            console.error('✗ Firebase save error:', error);
-                            console.error('Error details:', error.message, error.code);
-                        });
+                    try {
+                        dbRef.set(finalState)
+                            .then(() => {
+                                console.log('✓ Firebase save successful');
+                            })
+                            .catch(error => {
+                                console.error('✗ Firebase save error:', error);
+                                console.error('Error details:', error.message, error.code);
+                            });
+                    } catch (error) {
+                        console.error('✗ Firebase validation error (data too large):', error);
+                        alert('データサイズが大きすぎてFirebaseに保存できません。ファイルは5MB以下にしてください。');
+                    }
 
                     return finalState;
                 });
@@ -2786,6 +2790,21 @@
                  }
              };
 
+             const handleResetData = () => {
+                 showModal('データリセット', 'デビュー研修のデータを初期状態にリセットしますか？（アップロードしたファイルは全て削除されます）', () => {
+                     database.ref('debutTraining').set(initialDebutTrainingData)
+                         .then(() => {
+                             showToast('データをリセットしました', 'success');
+                             window.location.reload();
+                         })
+                         .catch(error => {
+                             showToast('リセットに失敗しました', 'error');
+                             console.error(error);
+                         });
+                     closeModal();
+                 });
+             };
+
              return (
                  <div className="bg-gray-100 h-full font-sans p-8 overflow-y-auto">
                      <Toast {...toast} onDismiss={() => setToast({ ...toast, message: '' })} />
@@ -2795,12 +2814,22 @@
                             <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
                                 <LucideIcon name="graduation-cap" className="text-indigo-600" size={32}/> デビュー研修一覧
                             </h1>
-                            <button
-                                onClick={() => setIsEditMode(!isEditMode)}
-                                className={`px-4 py-2 rounded text-sm font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
-                            >
-                                {isEditMode ? '完了' : '編集'}
-                            </button>
+                            <div className="flex gap-2">
+                                {isEditMode && (
+                                    <button
+                                        onClick={handleResetData}
+                                        className="px-4 py-2 rounded text-sm font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
+                                    >
+                                        リセット
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => setIsEditMode(!isEditMode)}
+                                    className={`px-4 py-2 rounded text-sm font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                >
+                                    {isEditMode ? '完了' : '編集'}
+                                </button>
+                            </div>
                         </div>
 
                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
