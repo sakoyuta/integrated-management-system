@@ -2546,7 +2546,13 @@
              const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
              const closeModal = () => setModalState({ ...modalState, isOpen: false });
 
+             const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB limit for Firebase
+
              const handleUploadPdf = async (category, itemId, file) => {
+                 if (file.size > MAX_FILE_SIZE) {
+                     showToast(`ファイルサイズが大きすぎます（最大5MB）: ${(file.size / 1024 / 1024).toFixed(1)}MB`, 'error');
+                     return;
+                 }
                  try {
                      const uploadedFile = await mockApi.uploadFile(file);
                      // Add unique ID to the PDF
@@ -2597,6 +2603,10 @@
              };
 
              const handleUploadPpt = async (category, itemId, file) => {
+                 if (file.size > MAX_FILE_SIZE) {
+                     showToast(`ファイルサイズが大きすぎます（最大5MB）: ${(file.size / 1024 / 1024).toFixed(1)}MB`, 'error');
+                     return;
+                 }
                  try {
                      const uploadedFile = await mockApi.uploadFile(file);
                      const pptWithId = {...uploadedFile, _id: `ppt_${Date.now()}_${Math.random()}`};
