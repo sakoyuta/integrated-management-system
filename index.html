@@ -1485,6 +1485,173 @@
           );
         };
 
+        // 日本の祝日データ (2024-2027)
+        const getJapaneseHolidays = (year) => {
+            const holidays = [];
+
+            // 固定祝日
+            holidays.push(new Date(year, 0, 1));   // 元日
+            holidays.push(new Date(year, 1, 11));  // 建国記念の日
+            holidays.push(new Date(year, 1, 23));  // 天皇誕生日
+            holidays.push(new Date(year, 3, 29));  // 昭和の日
+            holidays.push(new Date(year, 4, 3));   // 憲法記念日
+            holidays.push(new Date(year, 4, 4));   // みどりの日
+            holidays.push(new Date(year, 4, 5));   // こどもの日
+            holidays.push(new Date(year, 7, 11));  // 山の日
+            holidays.push(new Date(year, 10, 3));  // 文化の日
+            holidays.push(new Date(year, 10, 23)); // 勤労感謝の日
+
+            // 成人の日 (1月第2月曜)
+            const seijin = new Date(year, 0, 1);
+            seijin.setDate(seijin.getDate() + ((8 - seijin.getDay()) % 7) + 7);
+            holidays.push(seijin);
+
+            // 海の日 (7月第3月曜)
+            const umi = new Date(year, 6, 1);
+            umi.setDate(umi.getDate() + ((8 - umi.getDay()) % 7) + 14);
+            holidays.push(umi);
+
+            // 敬老の日 (9月第3月曜)
+            const keiro = new Date(year, 8, 1);
+            keiro.setDate(keiro.getDate() + ((8 - keiro.getDay()) % 7) + 14);
+            holidays.push(keiro);
+
+            // スポーツの日 (10月第2月曜)
+            const sports = new Date(year, 9, 1);
+            sports.setDate(sports.getDate() + ((8 - sports.getDay()) % 7) + 7);
+            holidays.push(sports);
+
+            // 春分の日 (3月20日前後)
+            const shunbun = year === 2024 ? 20 : year === 2025 ? 20 : year === 2026 ? 20 : 21;
+            holidays.push(new Date(year, 2, shunbun));
+
+            // 秋分の日 (9月22日前後)
+            const shubun = year === 2024 ? 22 : year === 2025 ? 23 : year === 2026 ? 23 : 23;
+            holidays.push(new Date(year, 8, shubun));
+
+            // 振替休日の追加（祝日が日曜の場合、翌月曜が休日）
+            const withFurikae = [...holidays];
+            holidays.forEach(h => {
+                if (h.getDay() === 0) {
+                    withFurikae.push(new Date(h.getTime() + 24 * 60 * 60 * 1000));
+                }
+            });
+
+            return withFurikae;
+        };
+
+        const isHoliday = (date) => {
+            const year = date.getFullYear();
+            const holidays = getJapaneseHolidays(year);
+            return holidays.some(h =>
+                h.getFullYear() === date.getFullYear() &&
+                h.getMonth() === date.getMonth() &&
+                h.getDate() === date.getDate()
+            );
+        };
+
+        const isBusinessDay = (date) => {
+            const day = date.getDay();
+            if (day === 0 || day === 6) return false; // 土日
+            if (isHoliday(date)) return false; // 祝日
+            return true;
+        };
+
+        const getPreviousBusinessDay = (date) => {
+            const result = new Date(date);
+            while (!isBusinessDay(result)) {
+                result.setDate(result.getDate() - 1);
+            }
+            return result;
+        };
+
+        const DateCalculatorTool = () => {
+            const today = new Date();
+            const [selectedDate, setSelectedDate] = useState(today.toISOString().split('T')[0]);
+            const [resultDate, setResultDate] = useState(null);
+            const [isHolidayResult, setIsHolidayResult] = useState(false);
+
+            const calculate40Days = () => {
+                const baseDate = new Date(selectedDate);
+                const futureDate = new Date(baseDate);
+                futureDate.setDate(futureDate.getDate() + 40);
+
+                if (isBusinessDay(futureDate)) {
+                    setResultDate(futureDate);
+                    setIsHolidayResult(false);
+                } else {
+                    const businessDay = getPreviousBusinessDay(futureDate);
+                    setResultDate(businessDay);
+                    setIsHolidayResult(true);
+                }
+            };
+
+            useEffect(() => {
+                calculate40Days();
+            }, [selectedDate]);
+
+            const formatDate = (date) => {
+                if (!date) return '';
+                const days = ['日', '月', '火', '水', '木', '金', '土'];
+                return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日（${days[date.getDay()]}）`;
+            };
+
+            return (
+                <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 max-w-lg mx-auto">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <LucideIcon name="calculator" size={28} className="text-yellow-600"/>
+                        40日後計算ツール
+                    </h2>
+
+                    <div className="space-y-6">
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                基準日を選択
+                            </label>
+                            <input
+                                type="date"
+                                value={selectedDate}
+                                onChange={(e) => setSelectedDate(e.target.value)}
+                                className="w-full p-3 border border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
+                            />
+                            <p className="text-sm text-gray-500 mt-1">
+                                選択日: {formatDate(new Date(selectedDate))}
+                            </p>
+                        </div>
+
+                        <div className="border-t pt-6">
+                            <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4">
+                                <p className="text-sm font-semibold text-yellow-800 mb-2">40日後の営業日</p>
+                                {resultDate && (
+                                    <>
+                                        <p className="text-3xl font-bold text-yellow-700">
+                                            {formatDate(resultDate)}
+                                        </p>
+                                        {isHolidayResult && (
+                                            <p className="text-sm text-orange-600 mt-2 flex items-center gap-1">
+                                                <LucideIcon name="alert-circle" size={14}/>
+                                                40日後は土日祝のため、直前の営業日を表示
+                                            </p>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
+                            <p className="font-semibold mb-2">計算ルール:</p>
+                            <ul className="list-disc list-inside space-y-1">
+                                <li>基準日から40日後を計算</li>
+                                <li>土曜・日曜は営業日から除外</li>
+                                <li>日本の祝日も営業日から除外</li>
+                                <li>40日後が休日の場合、直前の営業日を表示</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         const BankManagementApp = () => {
              // Version 11: Firebase integration for real-time sync
              const [banks, setBanks, isLoadingBanks] = useFirebaseState('banks', initialBankData);
@@ -1492,6 +1659,7 @@
              const [searchTerm, setSearchTerm] = useState("");
              const [isEditMode, setIsEditMode] = useState(false);
              const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
+             const [activeTab, setActiveTab] = useState('banks'); // 'banks' or 'tools'
 
              // Set initial selected bank after data loads
              useEffect(() => {
@@ -1574,35 +1742,69 @@
              };
 
              return (
-                 <div className="flex h-full w-full bg-gray-100 font-sans">
+                 <div className="flex flex-col h-full w-full bg-gray-100 font-sans">
                      <ErrorBoundary>
-                         <BankList
-                             banks={banks}
-                             selectedBankId={selectedBankId}
-                             onSelectBank={setSelectedBankId}
-                             searchTerm={searchTerm}
-                             onSearchChange={(e) => setSearchTerm(e.target.value)}
-                             onAddBank={handleAddBank}
-                             onDeleteBank={handleDeleteBank}
-                             isEditMode={isEditMode}
-                         />
-                         <main className="flex-1 p-6 overflow-hidden h-full flex flex-col">
-                             <div className="flex justify-end mb-4">
+                         {/* Tab Navigation */}
+                         <div className="bg-white border-b border-gray-200 px-6 pt-4">
+                             <div className="flex gap-4">
                                  <button
-                                     onClick={() => setIsEditMode(!isEditMode)}
-                                     className={`px-4 py-2 rounded text-sm font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                     onClick={() => setActiveTab('banks')}
+                                     className={`px-6 py-3 font-bold text-sm rounded-t-lg transition-colors ${activeTab === 'banks' ? 'bg-yellow-100 text-yellow-800 border-b-2 border-yellow-500' : 'text-gray-600 hover:bg-gray-100'}`}
                                  >
-                                     {isEditMode ? '完了' : '編集'}
+                                     <span className="flex items-center gap-2">
+                                         <LucideIcon name="building" size={18}/>
+                                         銀行一覧
+                                     </span>
+                                 </button>
+                                 <button
+                                     onClick={() => setActiveTab('tools')}
+                                     className={`px-6 py-3 font-bold text-sm rounded-t-lg transition-colors ${activeTab === 'tools' ? 'bg-yellow-100 text-yellow-800 border-b-2 border-yellow-500' : 'text-gray-600 hover:bg-gray-100'}`}
+                                 >
+                                     <span className="flex items-center gap-2">
+                                         <LucideIcon name="wrench" size={18}/>
+                                         ツール
+                                     </span>
                                  </button>
                              </div>
-                             <BankEditor
-                                 bank={selectedBank}
-                                 isEditMode={isEditMode}
-                                 onUpdateBank={(id, updated) => setBanks(banks.map(b => b.id === id ? updated : b))}
-                                 onAddDetailField={handleAddDetailField}
-                                 onDeleteDetailField={handleDeleteDetailField}
-                             />
-                         </main>
+                         </div>
+
+                         {/* Tab Content */}
+                         {activeTab === 'banks' ? (
+                             <div className="flex flex-1 overflow-hidden">
+                                 <BankList
+                                     banks={banks}
+                                     selectedBankId={selectedBankId}
+                                     onSelectBank={setSelectedBankId}
+                                     searchTerm={searchTerm}
+                                     onSearchChange={(e) => setSearchTerm(e.target.value)}
+                                     onAddBank={handleAddBank}
+                                     onDeleteBank={handleDeleteBank}
+                                     isEditMode={isEditMode}
+                                 />
+                                 <main className="flex-1 p-6 overflow-hidden h-full flex flex-col">
+                                     <div className="flex justify-end mb-4">
+                                         <button
+                                             onClick={() => setIsEditMode(!isEditMode)}
+                                             className={`px-4 py-2 rounded text-sm font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                         >
+                                             {isEditMode ? '完了' : '編集'}
+                                         </button>
+                                     </div>
+                                     <BankEditor
+                                         bank={selectedBank}
+                                         isEditMode={isEditMode}
+                                         onUpdateBank={(id, updated) => setBanks(banks.map(b => b.id === id ? updated : b))}
+                                         onAddDetailField={handleAddDetailField}
+                                         onDeleteDetailField={handleDeleteDetailField}
+                                     />
+                                 </main>
+                             </div>
+                         ) : (
+                             <div className="flex-1 p-8 overflow-y-auto">
+                                 <DateCalculatorTool />
+                             </div>
+                         )}
+
                          <ConfirmModal isOpen={modalState.isOpen} title={modalState.title} message={modalState.message} onConfirm={modalState.onConfirm} onCancel={closeModal} />
                      </ErrorBoundary>
                  </div>
