@@ -408,9 +408,21 @@
             return ( <textarea ref={textareaRef} value={value || ''} onChange={onChange} placeholder={placeholder} className={`w-full p-2 border border-gray-300 rounded-md shadow-sm resize-none focus:ring-blue-500 focus:border-blue-500 text-sm overflow-hidden ${className}`} rows="1" /> );
         };
 
-        const EditableField = ({ label, iconName, children }) => (
+        const EditableField = ({ label, iconName, children, onLabelChange, isEditMode }) => (
             <div>
-                <label className="flex items-center text-sm font-semibold text-gray-500 mb-2"> <LucideIcon name={iconName} size={16} /> <span className="ml-2">{label}</span> </label>
+                <label className="flex items-center text-sm font-semibold text-gray-500 mb-2">
+                    <LucideIcon name={iconName} size={16} />
+                    {onLabelChange && isEditMode ? (
+                        <input
+                            type="text"
+                            value={label}
+                            onChange={(e) => onLabelChange(e.target.value)}
+                            className="ml-2 border-b border-dashed border-gray-400 bg-transparent focus:border-blue-500 focus:outline-none px-1"
+                        />
+                    ) : (
+                        <span className="ml-2">{label}</span>
+                    )}
+                </label>
                 {children}
             </div>
         );
@@ -853,8 +865,27 @@
               </div>
             );
 
+          const defaultLabels = {
+            days: '時期目安',
+            role: '担当',
+            requestTo: '依頼先及び共有先',
+            purpose: '目的',
+            dos: "Do's",
+            donts: "Dont's",
+            procedure: '手順',
+            manualUrls: 'マニュアル (URL)',
+            pdfs: '資料 (PDF)'
+          };
+
+          const getLabel = (field) => (step.labels && step.labels[field]) || defaultLabels[field];
+
           const handleFieldChange = (field, value) =>
             onUpdateStep(step.id, { ...step, [field]: value });
+
+          const handleLabelChange = (field, newLabel) => {
+            const newLabels = { ...(step.labels || {}), [field]: newLabel };
+            onUpdateStep(step.id, { ...step, labels: newLabels });
+          };
 
           return (
             <div className="flex-1 h-full bg-white rounded-xl shadow-lg border border-gray-200 overflow-y-auto">
@@ -895,7 +926,17 @@
                   <div className="space-y-6">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-semibold text-gray-500 mb-1">時期目安</label>
+                        <label className="flex items-center text-sm font-semibold text-gray-500 mb-1">
+                          <LucideIcon name="calendar" size={14} className="mr-1"/>
+                          {isEditMode ? (
+                            <input
+                              type="text"
+                              value={getLabel('days')}
+                              onChange={(e) => handleLabelChange('days', e.target.value)}
+                              className="border-b border-dashed border-gray-400 bg-transparent focus:border-blue-500 focus:outline-none px-1"
+                            />
+                          ) : getLabel('days')}
+                        </label>
                         <input
                           type="text"
                           value={step.days || ''}
@@ -905,7 +946,17 @@
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-semibold text-gray-500 mb-1">担当</label>
+                        <label className="flex items-center text-sm font-semibold text-gray-500 mb-1">
+                          <LucideIcon name="user" size={14} className="mr-1"/>
+                          {isEditMode ? (
+                            <input
+                              type="text"
+                              value={getLabel('role')}
+                              onChange={(e) => handleLabelChange('role', e.target.value)}
+                              className="border-b border-dashed border-gray-400 bg-transparent focus:border-blue-500 focus:outline-none px-1"
+                            />
+                          ) : getLabel('role')}
+                        </label>
                         <select
                           value={step.role || 'sales'}
                           onChange={(e) => handleFieldChange('role', e.target.value)}
@@ -917,7 +968,7 @@
                       </div>
                     </div>
 
-                    <EditableField label="依頼先及び共有先" iconName="users">
+                    <EditableField label={getLabel('requestTo')} iconName="users" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('requestTo', v)}>
                       <AutoResizeTextarea
                         value={step.requestTo || ''}
                         onChange={(e) => handleFieldChange('requestTo', e.target.value)}
@@ -925,7 +976,7 @@
                       />
                     </EditableField>
 
-                    <EditableField label="目的" iconName="check">
+                    <EditableField label={getLabel('purpose')} iconName="check" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('purpose', v)}>
                       <AutoResizeTextarea
                         value={step.purpose}
                         onChange={(e) => handleFieldChange('purpose', e.target.value)}
@@ -933,7 +984,7 @@
                       />
                     </EditableField>
 
-                    <EditableField label="Do's" iconName="check-circle">
+                    <EditableField label={getLabel('dos')} iconName="check-circle" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('dos', v)}>
                       <AutoResizeTextarea
                         value={step.dos || ''}
                         onChange={(e) => handleFieldChange('dos', e.target.value)}
@@ -941,7 +992,7 @@
                       />
                     </EditableField>
 
-                    <EditableField label="Dont's" iconName="x-circle">
+                    <EditableField label={getLabel('donts')} iconName="x-circle" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('donts', v)}>
                       <AutoResizeTextarea
                         value={step.donts || ''}
                         onChange={(e) => handleFieldChange('donts', e.target.value)}
@@ -949,7 +1000,7 @@
                       />
                     </EditableField>
 
-                    <EditableField label="手順" iconName="file-text">
+                    <EditableField label={getLabel('procedure')} iconName="file-text" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('procedure', v)}>
                       <AutoResizeTextarea
                         value={step.procedure}
                         onChange={(e) => handleFieldChange('procedure', e.target.value)}
@@ -958,7 +1009,7 @@
                       />
                     </EditableField>
 
-                    <EditableField label="マニュアル (URL)" iconName="link">
+                    <EditableField label={getLabel('manualUrls')} iconName="link" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('manualUrls', v)}>
                       <div className="space-y-2">
                         {(step.manualUrls || []).map((urlItem, idx) => (
                           <div key={idx} className="text-sm bg-gray-50 p-2 rounded border border-gray-200 space-y-1">
@@ -1034,7 +1085,7 @@
                       </div>
                     </EditableField>
 
-                    <EditableField label="資料 (PDF)" iconName="file-text">
+                    <EditableField label={getLabel('pdfs')} iconName="file-text" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('pdfs', v)}>
                       <div className="space-y-2">
                         {(step.pdfs || []).map((pdf, idx) => (
                           <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 p-2 rounded border border-gray-200">
@@ -1114,45 +1165,45 @@
                   <div className="space-y-4 text-gray-800">
                     {step.days && (
                       <div className="text-sm">
-                        <span className="font-semibold">時期目安:</span> {step.days}
+                        <span className="font-semibold">{getLabel('days')}:</span> {step.days}
                       </div>
                     )}
                     <div className="text-sm">
-                      <span className="font-semibold">担当:</span> {step.role === 'sales' ? '営業担当' : '営業事務'}
+                      <span className="font-semibold">{getLabel('role')}:</span> {step.role === 'sales' ? '営業担当' : '営業事務'}
                     </div>
                     {step.requestTo && (
                       <div className="text-sm">
-                        <span className="font-semibold">依頼先及び共有先:</span>
+                        <span className="font-semibold">{getLabel('requestTo')}:</span>
                         <div className="mt-1 whitespace-pre-wrap">{step.requestTo}</div>
                       </div>
                     )}
                     {step.purpose && (
                       <div className="text-sm">
-                        <span className="font-semibold">目的:</span>
+                        <span className="font-semibold">{getLabel('purpose')}:</span>
                         <div className="mt-1 whitespace-pre-wrap">{step.purpose}</div>
                       </div>
                     )}
                     {step.dos && (
                       <div className="text-sm">
-                        <span className="font-semibold text-green-600">Do's:</span>
+                        <span className="font-semibold text-green-600">{getLabel('dos')}:</span>
                         <div className="mt-1 whitespace-pre-wrap">{step.dos}</div>
                       </div>
                     )}
                     {step.donts && (
                       <div className="text-sm">
-                        <span className="font-semibold text-red-600">Dont's:</span>
+                        <span className="font-semibold text-red-600">{getLabel('donts')}:</span>
                         <div className="mt-1 whitespace-pre-wrap">{step.donts}</div>
                       </div>
                     )}
                     {step.procedure && (
                       <div className="text-sm">
-                        <span className="font-semibold">手順:</span>
+                        <span className="font-semibold">{getLabel('procedure')}:</span>
                         <div className="mt-1 whitespace-pre-wrap">{step.procedure}</div>
                       </div>
                     )}
                     {step.manualUrls && step.manualUrls.length > 0 && (
                       <div className="text-sm">
-                        <span className="font-semibold">マニュアル:</span>
+                        <span className="font-semibold">{getLabel('manualUrls')}:</span>
                         <div className="mt-2 space-y-1">
                           {step.manualUrls.map((urlItem, idx) => (
                             <div key={idx} className="flex items-center">
@@ -1172,7 +1223,7 @@
                     )}
                     {step.pdfs && step.pdfs.length > 0 && (
                       <div className="text-sm">
-                        <span className="font-semibold">資料:</span>
+                        <span className="font-semibold">{getLabel('pdfs')}:</span>
                         <div className="mt-2 space-y-1">
                           {step.pdfs.map((pdf, idx) => (
                             <div key={idx} className="flex items-center">
