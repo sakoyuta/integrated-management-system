@@ -14,6 +14,7 @@
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
     <style>
         html, body, #root { height: 100%; margin: 0; }
         body { font-family: 'Inter', 'Noto Sans JP', sans-serif; background-color: #f3f4f6; }
@@ -99,6 +100,25 @@
             firebase.initializeApp(firebaseConfig);
         }
         const database = firebase.database();
+        const storage = firebase.storage();
+
+        // Firebase Storage helper functions
+        const uploadToStorage = async (file, path) => {
+            const storageRef = storage.ref(path);
+            const snapshot = await storageRef.put(file);
+            const downloadURL = await snapshot.ref.getDownloadURL();
+            return downloadURL;
+        };
+
+        const deleteFromStorage = async (path) => {
+            try {
+                const storageRef = storage.ref(path);
+                await storageRef.delete();
+                console.log('✓ File deleted from Storage:', path);
+            } catch (error) {
+                console.error('✗ Failed to delete from Storage:', error);
+            }
+        };
 
         // Firebase State Hook - Replaces usePersistentState with Firebase sync
         const useFirebaseState = (path, initialValue) => {
@@ -2847,17 +2867,24 @@
              const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
              const closeModal = () => setModalState({ ...modalState, isOpen: false });
 
-             const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB limit for Firebase
+             const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB limit for Firebase Storage
 
              const handleUploadPdf = async (category, itemId, file) => {
                  if (file.size > MAX_FILE_SIZE) {
-                     showToast(`ファイルサイズが大きすぎます（最大5MB）: ${(file.size / 1024 / 1024).toFixed(1)}MB`, 'error');
+                     showToast(`ファイルサイズが大きすぎます（最大50MB）: ${(file.size / 1024 / 1024).toFixed(1)}MB`, 'error');
                      return;
                  }
                  try {
-                     const uploadedFile = await mockApi.uploadFile(file);
-                     // Add unique ID to the PDF
-                     const pdfWithId = {...uploadedFile, _id: `pdf_${Date.now()}_${Math.random()}`};
+                     showToast('アップロード中...', 'info');
+                     const timestamp = Date.now();
+                     const storagePath = `debutTraining/${category}/${itemId}/pdf_${timestamp}_${file.name}`;
+                     const downloadURL = await uploadToStorage(file, storagePath);
+                     const pdfWithId = {
+                         _id: `pdf_${timestamp}_${Math.random()}`,
+                         name: file.name,
+                         url: downloadURL,
+                         storagePath: storagePath
+                     };
                      setTrainingData(prev => {
                          const newData = {...prev};
                          newData[category] = (newData[category] || []).map(item => {
@@ -2870,12 +2897,22 @@
                      });
                      showToast('PDFを追加しました', 'success');
                  } catch (e) {
-                     showToast('アップロードに失敗しました', 'error');
+                     console.error('Upload error:', e);
+                     showToast('アップロードに失敗しました: ' + e.message, 'error');
                  }
              };
 
              const handleDeletePdf = (category, itemId, pdfId) => {
-                 showModal('PDF削除', 'このPDFを削除してもよろしいですか？', () => {
+                 showModal('PDF削除', 'このPDFを削除してもよろしいですか？', async () => {
+                     // Find the PDF to get its storage path
+                     const item = trainingData[category]?.find(i => i.id === itemId);
+                     const pdfToDelete = item?.pdfs?.find(pdf => pdf._id === pdfId);
+
+                     // Delete from Storage if storagePath exists
+                     if (pdfToDelete?.storagePath) {
+                         await deleteFromStorage(pdfToDelete.storagePath);
+                     }
+
                      setTrainingData(prev => {
                          const newData = {...prev};
                          newData[category] = (newData[category] || []).map(item => {
@@ -2905,12 +2942,20 @@
 
              const handleUploadPpt = async (category, itemId, file) => {
                  if (file.size > MAX_FILE_SIZE) {
-                     showToast(`ファイルサイズが大きすぎます（最大5MB）: ${(file.size / 1024 / 1024).toFixed(1)}MB`, 'error');
+                     showToast(`ファイルサイズが大きすぎます（最大50MB）: ${(file.size / 1024 / 1024).toFixed(1)}MB`, 'error');
                      return;
                  }
                  try {
-                     const uploadedFile = await mockApi.uploadFile(file);
-                     const pptWithId = {...uploadedFile, _id: `ppt_${Date.now()}_${Math.random()}`};
+                     showToast('アップロード中...', 'info');
+                     const timestamp = Date.now();
+                     const storagePath = `debutTraining/${category}/${itemId}/ppt_${timestamp}_${file.name}`;
+                     const downloadURL = await uploadToStorage(file, storagePath);
+                     const pptWithId = {
+                         _id: `ppt_${timestamp}_${Math.random()}`,
+                         name: file.name,
+                         url: downloadURL,
+                         storagePath: storagePath
+                     };
                      setTrainingData(prev => {
                          const newData = {...prev};
                          newData[category] = (newData[category] || []).map(item => {
@@ -2923,12 +2968,22 @@
                      });
                      showToast('PowerPointを追加しました', 'success');
                  } catch (e) {
-                     showToast('アップロードに失敗しました', 'error');
+                     console.error('Upload error:', e);
+                     showToast('アップロードに失敗しました: ' + e.message, 'error');
                  }
              };
 
              const handleDeletePpt = (category, itemId, pptId) => {
-                 showModal('PowerPoint削除', 'このPowerPointを削除してもよろしいですか？', () => {
+                 showModal('PowerPoint削除', 'このPowerPointを削除してもよろしいですか？', async () => {
+                     // Find the PPT to get its storage path
+                     const item = trainingData[category]?.find(i => i.id === itemId);
+                     const pptToDelete = item?.ppts?.find(ppt => ppt._id === pptId);
+
+                     // Delete from Storage if storagePath exists
+                     if (pptToDelete?.storagePath) {
+                         await deleteFromStorage(pptToDelete.storagePath);
+                     }
+
                      setTrainingData(prev => {
                          const newData = {...prev};
                          newData[category] = (newData[category] || []).map(item => {
