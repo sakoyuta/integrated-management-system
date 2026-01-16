@@ -3024,10 +3024,10 @@
                  }
              };
 
-             const handleAddUrl = (category, itemId, url) => {
+             const handleAddUrl = (category, itemId, url, title = '') => {
                  if (!url) return;
-                 // Create URL object with unique ID
-                 const urlWithId = { _id: `url_${Date.now()}_${Math.random()}`, url: url };
+                 // Create URL object with unique ID and title
+                 const urlWithId = { _id: `url_${Date.now()}_${Math.random()}`, url: url, title: title };
                  setTrainingData(prev => {
                      const newData = {...prev};
                      newData[category] = (newData[category] || []).map(item => {
@@ -3039,6 +3039,25 @@
                      return newData;
                  });
                  showToast('URLを追加しました', 'success');
+             };
+
+             const handleUpdateUrl = (category, itemId, urlId, updates) => {
+                 setTrainingData(prev => {
+                     const newData = {...prev};
+                     newData[category] = (newData[category] || []).map(item => {
+                         if (item.id === itemId) {
+                             const newUrls = (item.urls || []).map(urlItem => {
+                                 if (urlItem._id === urlId) {
+                                     return { ...urlItem, ...updates };
+                                 }
+                                 return urlItem;
+                             });
+                             return { ...item, urls: newUrls };
+                         }
+                         return item;
+                     });
+                     return newData;
+                 });
              };
 
              const handleDeleteUrl = (category, itemId, urlId) => {
@@ -3316,17 +3335,46 @@
                                                         {(item.urls || []).map((urlItem, idx) => {
                                                             try {
                                                                 const urlString = typeof urlItem === 'string' ? urlItem : (urlItem && urlItem.url) || '';
+                                                                const urlTitle = (urlItem && typeof urlItem === 'object' && urlItem.title) || '';
                                                                 const urlKey = (urlItem && typeof urlItem === 'object' && urlItem._id) || `url-${item.id}-${idx}`;
                                                                 if (!urlString) return null;
+
+                                                                if (isEditMode) {
+                                                                    return (
+                                                                        <div key={urlKey} className="text-xs bg-white p-2 rounded border border-gray-200 space-y-1">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <LucideIcon name="link" size={14} className="text-blue-500 flex-shrink-0"/>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={urlTitle}
+                                                                                    onChange={(e) => handleUpdateUrl(category, item.id, urlKey, { title: e.target.value })}
+                                                                                    placeholder="タイトルを入力..."
+                                                                                    className="flex-1 p-1 border border-gray-300 rounded text-xs"
+                                                                                />
+                                                                                <button onClick={() => handleDeleteUrl(category, item.id, urlKey)} className="text-gray-400 hover:text-red-500 flex-shrink-0">×</button>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 pl-5">
+                                                                                <input
+                                                                                    type="url"
+                                                                                    value={urlString}
+                                                                                    onChange={(e) => handleUpdateUrl(category, item.id, urlKey, { url: e.target.value })}
+                                                                                    placeholder="URLを入力..."
+                                                                                    className="flex-1 p-1 border border-gray-300 rounded text-xs text-blue-600"
+                                                                                />
+                                                                                <a href={urlString} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 flex-shrink-0">
+                                                                                    <LucideIcon name="external-link" size={14}/>
+                                                                                </a>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+
                                                                 return (
-                                                                    <div key={urlKey} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
-                                                                        <a href={urlString} target="_blank" rel="noopener noreferrer" className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2 text-blue-500">
+                                                                    <div key={urlKey} className="flex items-center text-xs bg-white p-2 rounded border border-gray-200">
+                                                                        <a href={urlString} target="_blank" rel="noopener noreferrer" className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 text-blue-500">
                                                                             <LucideIcon name="link" size={14} className="mr-1 flex-shrink-0"/>
-                                                                            <span className="truncate">{urlString}</span>
+                                                                            <span className="truncate">{urlTitle || urlString}</span>
                                                                         </a>
-                                                                        {isEditMode && (
-                                                                            <button onClick={() => handleDeleteUrl(category, item.id, urlKey)} className="text-gray-400 hover:text-red-500">×</button>
-                                                                        )}
                                                                     </div>
                                                                 );
                                                             } catch (e) {
@@ -3338,29 +3386,46 @@
 
                                                      {/* Add URL Input */}
                                                     {isEditMode && (
-                                                     <div className="flex items-center gap-1">
-                                                        <input
-                                                            type="text"
-                                                            placeholder="https://..."
-                                                            className="flex-1 p-1.5 border rounded text-xs"
-                                                            id={`url-input-${item.id}`}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
-                                                                    handleAddUrl(category, item.id, e.target.value);
-                                                                    e.target.value = '';
-                                                                }
-                                                            }}
-                                                        />
-                                                        <button
-                                                            onClick={() => {
-                                                                const input = document.getElementById(`url-input-${item.id}`);
-                                                                handleAddUrl(category, item.id, input.value);
-                                                                input.value = '';
-                                                            }}
-                                                            className="bg-gray-100 border border-gray-300 text-gray-600 p-1.5 rounded hover:bg-gray-200"
-                                                        >
-                                                            <LucideIcon name="plus" size={14} />
-                                                        </button>
+                                                     <div className="space-y-1 bg-gray-50 p-2 rounded border border-dashed border-gray-300">
+                                                        <div className="flex items-center gap-1">
+                                                            <LucideIcon name="link" size={14} className="text-gray-400 flex-shrink-0"/>
+                                                            <input
+                                                                type="text"
+                                                                placeholder="タイトル（任意）"
+                                                                className="flex-1 p-1.5 border rounded text-xs"
+                                                                id={`url-title-input-${item.id}`}
+                                                            />
+                                                        </div>
+                                                        <div className="flex items-center gap-1 pl-5">
+                                                            <input
+                                                                type="url"
+                                                                placeholder="https://..."
+                                                                className="flex-1 p-1.5 border rounded text-xs"
+                                                                id={`url-input-${item.id}`}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        const titleInput = document.getElementById(`url-title-input-${item.id}`);
+                                                                        handleAddUrl(category, item.id, e.target.value, titleInput.value);
+                                                                        e.target.value = '';
+                                                                        titleInput.value = '';
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <button
+                                                                onClick={() => {
+                                                                    const input = document.getElementById(`url-input-${item.id}`);
+                                                                    const titleInput = document.getElementById(`url-title-input-${item.id}`);
+                                                                    if (input.value) {
+                                                                        handleAddUrl(category, item.id, input.value, titleInput.value);
+                                                                        input.value = '';
+                                                                        titleInput.value = '';
+                                                                    }
+                                                                }}
+                                                                className="bg-blue-500 text-white p-1.5 rounded hover:bg-blue-600"
+                                                            >
+                                                                <LucideIcon name="plus" size={14} />
+                                                            </button>
+                                                        </div>
                                                      </div>
                                                     )}
                                                  </div>
@@ -3389,8 +3454,8 @@
         // ==========================================
 
         const initialStockConData = [
-            { id: 1, name: 'サンプル会社A', fundingPlanPdfs: [], planPdfs: [], otherInfo: '' },
-            { id: 2, name: 'サンプル会社B', fundingPlanPdfs: [], planPdfs: [], otherInfo: '' },
+            { id: 1, name: 'サンプル会社A', fundingPlanPdfs: [], planPdfs: [], urls: [], otherInfo: '' },
+            { id: 2, name: 'サンプル会社B', fundingPlanPdfs: [], planPdfs: [], urls: [], otherInfo: '' },
         ];
 
         const StockConInfoApp = () => {
@@ -3413,7 +3478,7 @@
 
             const handleAddCompany = () => {
                 const newId = Math.max(...companies.map(c => c.id), 0) + 1;
-                const newCompany = { id: newId, name: '新規会社', fundingPlanPdfs: [], planPdfs: [], otherInfo: '' };
+                const newCompany = { id: newId, name: '新規会社', fundingPlanPdfs: [], planPdfs: [], urls: [], otherInfo: '' };
                 setCompanies([...companies, newCompany]);
                 setSelectedCompanyId(newId);
                 showToast('会社を追加しました', 'success');
@@ -3459,6 +3524,27 @@
                 link.href = pdf.data;
                 link.download = pdf.name;
                 link.click();
+            };
+
+            const handleAddUrl = (companyId, url, title = '') => {
+                if (!url) return;
+                const company = companies.find(c => c.id === companyId);
+                const newUrl = { _id: `url_${Date.now()}_${Math.random()}`, url, title };
+                handleUpdateCompany(companyId, 'urls', [...(company.urls || []), newUrl]);
+                showToast('URLを追加しました', 'success');
+            };
+
+            const handleDeleteUrl = (companyId, urlId) => {
+                const company = companies.find(c => c.id === companyId);
+                const newUrls = (company.urls || []).filter(u => u._id !== urlId);
+                handleUpdateCompany(companyId, 'urls', newUrls);
+                showToast('URLを削除しました', 'success');
+            };
+
+            const handleUpdateUrl = (companyId, urlId, updates) => {
+                const company = companies.find(c => c.id === companyId);
+                const newUrls = (company.urls || []).map(u => u._id === urlId ? { ...u, ...updates } : u);
+                handleUpdateCompany(companyId, 'urls', newUrls);
             };
 
             if (isLoading) {
@@ -3617,6 +3703,105 @@
                                                 )}
                                                 {!isEditMode && (selectedCompany.planPdfs || []).length === 0 && (
                                                     <p className="text-gray-400 text-sm">プランが登録されていません</p>
+                                                )}
+                                            </div>
+
+                                            {/* URL */}
+                                            <div className="border rounded-lg p-4">
+                                                <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                                    <LucideIcon name="link" size={18} className="text-blue-600"/>
+                                                    関連URL
+                                                </h3>
+                                                <div className="space-y-2 mb-3">
+                                                    {(selectedCompany.urls || []).map((urlItem) => {
+                                                        if (isEditMode) {
+                                                            return (
+                                                                <div key={urlItem._id} className="text-sm bg-gray-50 p-3 rounded border border-gray-200 space-y-2">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <LucideIcon name="link" size={14} className="text-blue-500 flex-shrink-0"/>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={urlItem.title || ''}
+                                                                            onChange={(e) => handleUpdateUrl(selectedCompany.id, urlItem._id, { title: e.target.value })}
+                                                                            placeholder="タイトルを入力..."
+                                                                            className="flex-1 p-1 border border-gray-300 rounded text-sm"
+                                                                        />
+                                                                        <button onClick={() => handleDeleteUrl(selectedCompany.id, urlItem._id)} className="text-gray-400 hover:text-red-500 flex-shrink-0">
+                                                                            <LucideIcon name="x" size={16}/>
+                                                                        </button>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 pl-5">
+                                                                        <input
+                                                                            type="url"
+                                                                            value={urlItem.url || ''}
+                                                                            onChange={(e) => handleUpdateUrl(selectedCompany.id, urlItem._id, { url: e.target.value })}
+                                                                            placeholder="URLを入力..."
+                                                                            className="flex-1 p-1 border border-gray-300 rounded text-sm text-blue-600"
+                                                                        />
+                                                                        {urlItem.url && (
+                                                                            <a href={urlItem.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 flex-shrink-0">
+                                                                                <LucideIcon name="external-link" size={14}/>
+                                                                            </a>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <div key={urlItem._id} className="flex items-center text-sm bg-gray-50 p-3 rounded border border-gray-200">
+                                                                <a href={urlItem.url} target="_blank" rel="noopener noreferrer" className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 text-blue-500">
+                                                                    <LucideIcon name="link" size={16} className="mr-2 flex-shrink-0"/>
+                                                                    <span className="truncate">{urlItem.title || urlItem.url}</span>
+                                                                </a>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                {isEditMode && (
+                                                    <div className="space-y-2 bg-white p-3 border-2 border-dashed border-gray-300 rounded-lg">
+                                                        <div className="flex items-center gap-2">
+                                                            <LucideIcon name="link" size={14} className="text-gray-400 flex-shrink-0"/>
+                                                            <input
+                                                                type="text"
+                                                                placeholder="タイトル（任意）"
+                                                                className="flex-1 p-1.5 border rounded text-sm"
+                                                                id={`stockcon-url-title-${selectedCompany.id}`}
+                                                            />
+                                                        </div>
+                                                        <div className="flex items-center gap-2 pl-5">
+                                                            <input
+                                                                type="url"
+                                                                placeholder="https://..."
+                                                                className="flex-1 p-1.5 border rounded text-sm"
+                                                                id={`stockcon-url-${selectedCompany.id}`}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        const titleInput = document.getElementById(`stockcon-url-title-${selectedCompany.id}`);
+                                                                        handleAddUrl(selectedCompany.id, e.target.value, titleInput.value);
+                                                                        e.target.value = '';
+                                                                        titleInput.value = '';
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <button
+                                                                onClick={() => {
+                                                                    const urlInput = document.getElementById(`stockcon-url-${selectedCompany.id}`);
+                                                                    const titleInput = document.getElementById(`stockcon-url-title-${selectedCompany.id}`);
+                                                                    if (urlInput.value) {
+                                                                        handleAddUrl(selectedCompany.id, urlInput.value, titleInput.value);
+                                                                        urlInput.value = '';
+                                                                        titleInput.value = '';
+                                                                    }
+                                                                }}
+                                                                className="bg-blue-500 text-white p-1.5 rounded hover:bg-blue-600"
+                                                            >
+                                                                <LucideIcon name="plus" size={14}/>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {!isEditMode && (selectedCompany.urls || []).length === 0 && (
+                                                    <p className="text-gray-400 text-sm">URLが登録されていません</p>
                                                 )}
                                             </div>
 
