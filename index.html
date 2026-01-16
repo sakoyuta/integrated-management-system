@@ -103,11 +103,64 @@
         const storage = firebase.storage();
 
         // Firebase Storage helper functions
-        const uploadToStorage = async (file, path) => {
-            const storageRef = storage.ref(path);
-            const snapshot = await storageRef.put(file);
-            const downloadURL = await snapshot.ref.getDownloadURL();
-            return downloadURL;
+        const uploadToStorage = async (file, path, timeoutMs = 30000) => {
+            console.log('=== Starting upload to Storage ===');
+            console.log('File:', file.name, 'Size:', file.size, 'Type:', file.type);
+            console.log('Path:', path);
+
+            return new Promise((resolve, reject) => {
+                const timeoutId = setTimeout(() => {
+                    console.error('Upload timed out after', timeoutMs, 'ms');
+                    reject(new Error('アップロードがタイムアウトしました。Firebase Storageの設定を確認してください。'));
+                }, timeoutMs);
+
+                try {
+                    const storageRef = storage.ref(path);
+                    console.log('Storage ref created, starting upload...');
+
+                    const uploadTask = storageRef.put(file);
+
+                    uploadTask.on('state_changed',
+                        (snapshot) => {
+                            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                            console.log('Upload progress:', progress.toFixed(1) + '%');
+                        },
+                        (error) => {
+                            clearTimeout(timeoutId);
+                            console.error('=== Storage Upload Error ===');
+                            console.error('Error code:', error.code);
+                            console.error('Error message:', error.message);
+                            reject(error);
+                        },
+                        async () => {
+                            clearTimeout(timeoutId);
+                            console.log('Upload completed, getting download URL...');
+                            try {
+                                const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
+                                console.log('Download URL obtained:', downloadURL);
+                                resolve(downloadURL);
+                            } catch (urlError) {
+                                console.error('Failed to get download URL:', urlError);
+                                reject(urlError);
+                            }
+                        }
+                    );
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    console.error('Failed to start upload:', error);
+                    reject(error);
+                }
+            });
+        };
+
+        // Fallback: Convert file to base64 data URL (for when Storage fails)
+        const fileToDataUrl = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
         };
 
         const deleteFromStorage = async (path) => {
@@ -2870,36 +2923,62 @@
              const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB limit for Firebase Storage
 
              const handleUploadPdf = async (category, itemId, file) => {
+                 const BASE64_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB for base64 fallback
+
                  if (file.size > MAX_FILE_SIZE) {
                      showToast(`ファイルサイズが大きすぎます（最大50MB）: ${(file.size / 1024 / 1024).toFixed(1)}MB`, 'error');
                      return;
                  }
+
+                 const timestamp = Date.now();
+                 let pdfWithId;
+
                  try {
                      showToast('アップロード中...', 'info');
-                     const timestamp = Date.now();
                      const storagePath = `debutTraining/${category}/${itemId}/pdf_${timestamp}_${file.name}`;
                      const downloadURL = await uploadToStorage(file, storagePath);
-                     const pdfWithId = {
+                     pdfWithId = {
                          _id: `pdf_${timestamp}_${Math.random()}`,
                          name: file.name,
                          url: downloadURL,
                          storagePath: storagePath
                      };
-                     setTrainingData(prev => {
-                         const newData = {...prev};
-                         newData[category] = (newData[category] || []).map(item => {
-                             if(item.id === itemId) {
-                                 return {...item, pdfs: [...(item.pdfs || []), pdfWithId]};
-                             }
-                             return item;
-                         });
-                         return newData;
-                     });
-                     showToast('PDFを追加しました', 'success');
-                 } catch (e) {
-                     console.error('Upload error:', e);
-                     showToast('アップロードに失敗しました: ' + e.message, 'error');
+                     showToast('PDFを追加しました (Storage)', 'success');
+                 } catch (storageError) {
+                     console.warn('Storage upload failed, trying base64 fallback:', storageError.message);
+
+                     // Fallback to base64 for smaller files
+                     if (file.size > BASE64_SIZE_LIMIT) {
+                         showToast(`Storageが利用できません。5MB以下のファイルのみ対応可能です。`, 'error');
+                         return;
+                     }
+
+                     try {
+                         showToast('代替方式でアップロード中...', 'info');
+                         const dataUrl = await fileToDataUrl(file);
+                         pdfWithId = {
+                             _id: `pdf_${timestamp}_${Math.random()}`,
+                             name: file.name,
+                             url: dataUrl
+                         };
+                         showToast('PDFを追加しました', 'success');
+                     } catch (base64Error) {
+                         console.error('Base64 fallback also failed:', base64Error);
+                         showToast('アップロードに失敗しました', 'error');
+                         return;
+                     }
                  }
+
+                 setTrainingData(prev => {
+                     const newData = {...prev};
+                     newData[category] = (newData[category] || []).map(item => {
+                         if(item.id === itemId) {
+                             return {...item, pdfs: [...(item.pdfs || []), pdfWithId]};
+                         }
+                         return item;
+                     });
+                     return newData;
+                 });
              };
 
              const handleDeletePdf = (category, itemId, pdfId) => {
@@ -2941,36 +3020,62 @@
              };
 
              const handleUploadPpt = async (category, itemId, file) => {
+                 const BASE64_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB for base64 fallback
+
                  if (file.size > MAX_FILE_SIZE) {
                      showToast(`ファイルサイズが大きすぎます（最大50MB）: ${(file.size / 1024 / 1024).toFixed(1)}MB`, 'error');
                      return;
                  }
+
+                 const timestamp = Date.now();
+                 let pptWithId;
+
                  try {
                      showToast('アップロード中...', 'info');
-                     const timestamp = Date.now();
                      const storagePath = `debutTraining/${category}/${itemId}/ppt_${timestamp}_${file.name}`;
                      const downloadURL = await uploadToStorage(file, storagePath);
-                     const pptWithId = {
+                     pptWithId = {
                          _id: `ppt_${timestamp}_${Math.random()}`,
                          name: file.name,
                          url: downloadURL,
                          storagePath: storagePath
                      };
-                     setTrainingData(prev => {
-                         const newData = {...prev};
-                         newData[category] = (newData[category] || []).map(item => {
-                             if(item.id === itemId) {
-                                 return {...item, ppts: [...(item.ppts || []), pptWithId]};
-                             }
-                             return item;
-                         });
-                         return newData;
-                     });
-                     showToast('PowerPointを追加しました', 'success');
-                 } catch (e) {
-                     console.error('Upload error:', e);
-                     showToast('アップロードに失敗しました: ' + e.message, 'error');
+                     showToast('PowerPointを追加しました (Storage)', 'success');
+                 } catch (storageError) {
+                     console.warn('Storage upload failed, trying base64 fallback:', storageError.message);
+
+                     // Fallback to base64 for smaller files
+                     if (file.size > BASE64_SIZE_LIMIT) {
+                         showToast(`Storageが利用できません。5MB以下のファイルのみ対応可能です。`, 'error');
+                         return;
+                     }
+
+                     try {
+                         showToast('代替方式でアップロード中...', 'info');
+                         const dataUrl = await fileToDataUrl(file);
+                         pptWithId = {
+                             _id: `ppt_${timestamp}_${Math.random()}`,
+                             name: file.name,
+                             url: dataUrl
+                         };
+                         showToast('PowerPointを追加しました', 'success');
+                     } catch (base64Error) {
+                         console.error('Base64 fallback also failed:', base64Error);
+                         showToast('アップロードに失敗しました', 'error');
+                         return;
+                     }
                  }
+
+                 setTrainingData(prev => {
+                     const newData = {...prev};
+                     newData[category] = (newData[category] || []).map(item => {
+                         if(item.id === itemId) {
+                             return {...item, ppts: [...(item.ppts || []), pptWithId]};
+                         }
+                         return item;
+                     });
+                     return newData;
+                 });
              };
 
              const handleDeletePpt = (category, itemId, pptId) => {
