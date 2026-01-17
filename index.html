@@ -3954,6 +3954,7 @@
             const [data, setData] = useState(null);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
+            const [selectedTeam, setSelectedTeam] = useState(null);
 
             const fetchData = async () => {
                 setLoading(true);
@@ -3962,6 +3963,10 @@
                     const response = await fetch(SPREADSHEET_API_URL);
                     const json = await response.json();
                     setData(json);
+                    // 最初のチームを選択
+                    if (json.teamCustomers && Object.keys(json.teamCustomers).length > 0 && !selectedTeam) {
+                        setSelectedTeam(Object.keys(json.teamCustomers)[0]);
+                    }
                 } catch (e) {
                     setError('データの取得に失敗しました: ' + e.message);
                 } finally {
@@ -3999,6 +4004,18 @@
 
             const ranking = data?.personalRanking || [];
             const teams = data?.teamForecast || [];
+            const teamCustomers = data?.teamCustomers || {};
+            const teamNames = Object.keys(teamCustomers);
+            const currentTeamCustomers = selectedTeam ? (teamCustomers[selectedTeam] || []) : [];
+
+            const getStatusColor = (status) => {
+                if (!status) return 'bg-gray-100 text-gray-600';
+                if (status.includes('契約') || status.includes('成約')) return 'bg-green-100 text-green-700';
+                if (status.includes('内定') || status.includes('8割') || status.includes('確度高')) return 'bg-blue-100 text-blue-700';
+                if (status.includes('商談') || status.includes('進行')) return 'bg-yellow-100 text-yellow-700';
+                if (status.includes('失注') || status.includes('中止')) return 'bg-red-100 text-red-700';
+                return 'bg-gray-100 text-gray-600';
+            };
 
             return (
                 <div className="bg-gray-100 min-h-full font-sans p-6 overflow-y-auto">
@@ -4018,40 +4035,31 @@
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                             {/* 個人契約ランキング */}
                             <div className="bg-white rounded-xl shadow-md overflow-hidden">
                                 <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 font-bold flex items-center gap-2">
                                     <LucideIcon name="trophy" size={20}/> 個人契約ランキング
                                 </div>
-                                <div className="p-4 max-h-[500px] overflow-y-auto">
+                                <div className="p-4 max-h-[400px] overflow-y-auto">
                                     <table className="w-full text-sm">
                                         <thead className="bg-gray-50 sticky top-0">
                                             <tr>
                                                 <th className="text-left p-2 font-semibold">順位</th>
                                                 <th className="text-left p-2 font-semibold">氏名</th>
-                                                <th className="text-center p-2 font-semibold">契約済</th>
-                                                <th className="text-center p-2 font-semibold">内定</th>
-                                                <th className="text-center p-2 font-semibold">8割</th>
-                                                <th className="text-center p-2 font-semibold bg-blue-50">合計</th>
+                                                <th className="text-center p-2 font-semibold bg-blue-50">スコア</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {ranking.filter(p => p.name !== '合計').map((person, idx) => {
-                                                const total = (person.contracted || 0) + (person.confirmed || 0) + (person.eightyPercent || 0);
-                                                return (
-                                                    <tr key={idx} className={`border-b hover:bg-gray-50 ${idx < 3 ? 'bg-yellow-50' : ''}`}>
-                                                        <td className="p-2">
-                                                            {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
-                                                        </td>
-                                                        <td className="p-2 font-medium">{person.name}</td>
-                                                        <td className="text-center p-2">{person.contracted || 0}</td>
-                                                        <td className="text-center p-2">{person.confirmed || 0}</td>
-                                                        <td className="text-center p-2">{person.eightyPercent || 0}</td>
-                                                        <td className="text-center p-2 font-bold bg-blue-50">{total}</td>
-                                                    </tr>
-                                                );
-                                            })}
+                                            {ranking.filter(p => p.name !== '合計' && p.name).map((person, idx) => (
+                                                <tr key={idx} className={`border-b hover:bg-gray-50 ${idx < 3 ? 'bg-yellow-50' : ''}`}>
+                                                    <td className="p-2">
+                                                        {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                                                    </td>
+                                                    <td className="p-2 font-medium">{person.name}</td>
+                                                    <td className="text-center p-2 font-bold bg-blue-50">{person.score || 0}</td>
+                                                </tr>
+                                            ))}
                                         </tbody>
                                     </table>
                                     {ranking.length === 0 && (
@@ -4094,9 +4102,77 @@
                             </div>
                         </div>
 
+                        {/* チーム別顧客情報 */}
+                        {teamNames.length > 0 && (
+                            <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                                <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-4 font-bold flex items-center gap-2">
+                                    <LucideIcon name="clipboard-list" size={20}/> チーム別顧客情報
+                                </div>
+
+                                {/* チームタブ */}
+                                <div className="flex border-b overflow-x-auto">
+                                    {teamNames.map(teamName => (
+                                        <button
+                                            key={teamName}
+                                            onClick={() => setSelectedTeam(teamName)}
+                                            className={`px-4 py-3 font-medium text-sm whitespace-nowrap transition-colors ${
+                                                selectedTeam === teamName
+                                                    ? 'bg-purple-50 text-purple-700 border-b-2 border-purple-600'
+                                                    : 'text-gray-600 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            {teamName}
+                                            <span className="ml-2 px-2 py-0.5 bg-gray-200 rounded-full text-xs">
+                                                {(teamCustomers[teamName] || []).length}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* 顧客テーブル */}
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="text-left p-3 font-semibold whitespace-nowrap">担当</th>
+                                                <th className="text-left p-3 font-semibold whitespace-nowrap">顧客名</th>
+                                                <th className="text-left p-3 font-semibold whitespace-nowrap">ステータス</th>
+                                                <th className="text-left p-3 font-semibold whitespace-nowrap">土地</th>
+                                                <th className="text-center p-3 font-semibold whitespace-nowrap">打合せ</th>
+                                                <th className="text-left p-3 font-semibold whitespace-nowrap">最終連絡</th>
+                                                <th className="text-left p-3 font-semibold whitespace-nowrap">次回アポ</th>
+                                                <th className="text-left p-3 font-semibold whitespace-nowrap">現状</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {currentTeamCustomers.map((customer, idx) => (
+                                                <tr key={idx} className="border-b hover:bg-gray-50">
+                                                    <td className="p-3 whitespace-nowrap">{customer.staff || '-'}</td>
+                                                    <td className="p-3 font-medium">{customer.status || customer.name || '-'}</td>
+                                                    <td className="p-3">
+                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(customer.hasLand)}`}>
+                                                            {customer.hasLand || '-'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-3 whitespace-nowrap">{customer.memberType || '-'}</td>
+                                                    <td className="text-center p-3">{customer.meetingCount || 0}</td>
+                                                    <td className="p-3 whitespace-nowrap text-gray-600">{customer.lastContact || '-'}</td>
+                                                    <td className="p-3 whitespace-nowrap text-blue-600">{customer.nextAppointment || '-'}</td>
+                                                    <td className="p-3 max-w-xs truncate" title={customer.currentStatus}>{customer.currentStatus || '-'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                    {currentTeamCustomers.length === 0 && (
+                                        <p className="text-center text-gray-400 py-8">顧客データがありません</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         {/* データソース情報 */}
                         <div className="mt-6 text-center text-sm text-gray-400">
-                            データソース: {data?.sheetName || 'スプレッドシート'} ({data?.rowCount || 0}行)
+                            最終更新: {data?.lastUpdated || '-'}
                         </div>
                     </div>
                 </div>
