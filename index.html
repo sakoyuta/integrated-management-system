@@ -4069,6 +4069,15 @@
                         throw new Error(json.error);
                     }
 
+                    // デバッグ: データ構造を確認
+                    console.log('=== Spreadsheet Data ===');
+                    console.log('Full data:', json);
+                    console.log('teamCustomers:', json.teamCustomers);
+                    console.log('teamCustomers type:', typeof json.teamCustomers);
+                    if (json.teamCustomers) {
+                        console.log('teamCustomers keys:', Object.keys(json.teamCustomers));
+                    }
+
                     setData(json);
                     // 最初のチームを選択
                     if (json.teamCustomers && Object.keys(json.teamCustomers).length > 0 && !selectedTeam) {
@@ -4119,10 +4128,20 @@
 
             const ranking = Array.isArray(data?.personalRanking) ? data.personalRanking : [];
             const teams = Array.isArray(data?.teamForecast) ? data.teamForecast : [];
-            const teamCustomers = data?.teamCustomers || {};
+
+            // teamCustomersがオブジェクトであることを確認
+            const rawTeamCustomers = data?.teamCustomers;
+            const teamCustomers = (rawTeamCustomers && typeof rawTeamCustomers === 'object' && !Array.isArray(rawTeamCustomers))
+                ? rawTeamCustomers
+                : {};
             const teamNames = Object.keys(teamCustomers);
-            const rawTeamCustomers = selectedTeam ? teamCustomers[selectedTeam] : null;
-            const currentTeamCustomers = Array.isArray(rawTeamCustomers) ? rawTeamCustomers : [];
+
+            // 選択中のチームの顧客リストを取得
+            const selectedTeamData = selectedTeam ? teamCustomers[selectedTeam] : null;
+            const currentTeamCustomers = Array.isArray(selectedTeamData) ? selectedTeamData : [];
+
+            // デバッグログ（レンダリング時）
+            console.log('Rendering - teamNames:', teamNames, 'selectedTeam:', selectedTeam, 'currentTeamCustomers count:', currentTeamCustomers.length);
 
             const getStatusColor = (status) => {
                 if (!status) return 'bg-gray-100 text-gray-600';
@@ -4239,7 +4258,7 @@
                                         >
                                             {teamName}
                                             <span className="ml-2 px-2 py-0.5 bg-gray-200 rounded-full text-xs">
-                                                {(teamCustomers[teamName] || []).length}
+                                                {Array.isArray(teamCustomers[teamName]) ? teamCustomers[teamName].length : 0}
                                             </span>
                                         </button>
                                     ))}
