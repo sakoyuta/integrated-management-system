@@ -2892,6 +2892,7 @@
 
                                      {/* Monthly Contracts Section */}
                                      <MonthlyContractsCard
+                                        key={activeRep.id}
                                         repId={activeRep.id}
                                         contracts={contracts}
                                         onUpdateContract={setContracts}
