@@ -2221,6 +2221,14 @@
             const [editingDate, setEditingDate] = useState('');
             const [editingVideo, setEditingVideo] = useState(null);
             const [editingVideoPreview, setEditingVideoPreview] = useState(null);
+            // 動画URL入力用の状態
+            const [videoUrl, setVideoUrl] = useState('');
+            const [videoTitle, setVideoTitle] = useState('');
+            const [videoInputMode, setVideoInputMode] = useState('url'); // 'url' or 'upload'
+            // 編集用動画URL状態
+            const [editingVideoUrl, setEditingVideoUrl] = useState('');
+            const [editingVideoTitle, setEditingVideoTitle] = useState('');
+            const [editingVideoInputMode, setEditingVideoInputMode] = useState('url');
 
             // 安全装置: progress が undefined の場合を考慮、古いステータス値も正規化
             const rawProgress = progress || { status: '未着手', comments: [] };
@@ -2268,10 +2276,17 @@
 
             const handleAddCommentClick = () => {
                 if (newComment.trim() && selectedDate) {
-                    onAddComment(repId, item.id, newComment.trim(), selectedDate, selectedVideo);
+                    const videoData = {
+                        video: selectedVideo,
+                        videoUrl: videoUrl.trim() || null,
+                        videoTitle: videoTitle.trim() || null
+                    };
+                    onAddComment(repId, item.id, newComment.trim(), selectedDate, videoData);
                     setNewComment('');
                     setSelectedVideo(null);
                     setVideoPreview(null);
+                    setVideoUrl('');
+                    setVideoTitle('');
                     setIsHistoryOpen(true);
                 }
             };
@@ -2282,6 +2297,9 @@
                 setEditingDate(comment.date);
                 setEditingVideo(comment.video || null);
                 setEditingVideoPreview(null);
+                setEditingVideoUrl(comment.videoUrl || '');
+                setEditingVideoTitle(comment.videoTitle || '');
+                setEditingVideoInputMode(comment.videoUrl ? 'url' : 'upload');
             };
 
             const handleCancelEdit = async () => {
@@ -2293,6 +2311,9 @@
                 setEditingDate('');
                 setEditingVideo(null);
                 setEditingVideoPreview(null);
+                setEditingVideoUrl('');
+                setEditingVideoTitle('');
+                setEditingVideoInputMode('url');
             };
 
             const handleEditVideoSelect = async (e) => {
@@ -2335,7 +2356,9 @@
                     onUpdateComment(repId, item.id, commentId, {
                         text: editingText.trim(),
                         date: editingDate,
-                        video: editingVideo
+                        video: editingVideo,
+                        videoUrl: editingVideoUrl.trim() || null,
+                        videoTitle: editingVideoTitle.trim() || null
                     });
                     handleCancelEdit();
                 }
@@ -2436,24 +2459,42 @@
                                                         <label className="text-[10px] text-gray-500 font-bold">内容</label>
                                                         <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} className="w-full p-1.5 border rounded text-xs resize-none h-16" />
                                                         <label className="text-[10px] text-gray-500 font-bold">動画</label>
-                                                        {editingVideo && !editingVideoPreview && (
-                                                            <div className="relative">
-                                                                <VideoPlayer videoId={editingVideo} className="w-full max-h-32 rounded border" />
-                                                                <button onClick={handleRemoveEditVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
-                                                                    <LucideIcon name="x" size={14} />
-                                                                </button>
+                                                        <div className="flex gap-1 mb-1">
+                                                            <button onClick={() => setEditingVideoInputMode('url')} className={`flex-1 py-1 px-2 text-xs rounded ${editingVideoInputMode === 'url' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>URL入力</button>
+                                                            <button onClick={() => setEditingVideoInputMode('upload')} className={`flex-1 py-1 px-2 text-xs rounded ${editingVideoInputMode === 'upload' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>アップロード</button>
+                                                        </div>
+                                                        {editingVideoInputMode === 'url' ? (
+                                                            <div className="flex flex-col gap-1">
+                                                                <input type="text" placeholder="動画タイトル" value={editingVideoTitle} onChange={(e) => setEditingVideoTitle(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
+                                                                <input type="url" placeholder="動画URL (YouTube, Vimeo等)" value={editingVideoUrl} onChange={(e) => setEditingVideoUrl(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
+                                                                {editingVideoUrl && (
+                                                                    <div className="text-xs text-green-600 flex items-center gap-1">
+                                                                        <LucideIcon name="check-circle" size={12} /> URL設定済み
+                                                                    </div>
+                                                                )}
                                                             </div>
-                                                        )}
-                                                        {editingVideoPreview && (
-                                                            <div className="relative">
-                                                                <video src={editingVideoPreview} controls className="w-full max-h-32 rounded border" />
-                                                                <button onClick={handleRemoveEditVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
-                                                                    <LucideIcon name="x" size={14} />
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                        {!editingVideo && (
-                                                            <input type="file" accept="video/*" onChange={handleEditVideoSelect} className="w-full p-1.5 border rounded text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                                                        ) : (
+                                                            <>
+                                                                {editingVideo && !editingVideoPreview && (
+                                                                    <div className="relative">
+                                                                        <VideoPlayer videoId={editingVideo} className="w-full max-h-32 rounded border" />
+                                                                        <button onClick={handleRemoveEditVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
+                                                                            <LucideIcon name="x" size={14} />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                                {editingVideoPreview && (
+                                                                    <div className="relative">
+                                                                        <video src={editingVideoPreview} controls className="w-full max-h-32 rounded border" />
+                                                                        <button onClick={handleRemoveEditVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
+                                                                            <LucideIcon name="x" size={14} />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                                {!editingVideo && (
+                                                                    <input type="file" accept="video/*" onChange={handleEditVideoSelect} className="w-full p-1.5 border rounded text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                                                                )}
+                                                            </>
                                                         )}
                                                         <div className="flex gap-2">
                                                             <button onClick={() => handleSaveEdit(c.id)} className="flex-1 bg-green-600 text-white py-1.5 rounded text-xs font-bold hover:bg-green-700 transition-colors" disabled={!editingText.trim() || !editingDate}>保存</button>
@@ -2475,6 +2516,15 @@
                                                                 <VideoPlayer videoId={c.video} className="w-full max-h-48 rounded border border-gray-200" />
                                                             </div>
                                                         )}
+                                                        {c.videoUrl && (
+                                                            <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200">
+                                                                <a href={c.videoUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-blue-600 hover:text-blue-800 text-sm">
+                                                                    <LucideIcon name="video" size={16} />
+                                                                    <span className="font-medium">{c.videoTitle || '動画リンク'}</span>
+                                                                    <LucideIcon name="external-link" size={14} className="ml-auto" />
+                                                                </a>
+                                                            </div>
+                                                        )}
                                                     </>
                                                 )}
                                             </div>
@@ -2486,15 +2536,33 @@
                                     <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
                                     <textarea placeholder="活動内容・フィードバック..." value={newComment} onChange={(e) => setNewComment(e.target.value)} className="w-full p-1.5 border rounded text-xs resize-none h-16" ></textarea>
                                     <div className="flex flex-col gap-2">
-                                        <label className="text-[10px] text-gray-500 font-bold">動画アップロード (任意)</label>
-                                        <input type="file" accept="video/*" onChange={handleVideoSelect} className="w-full p-1.5 border rounded text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-                                        {videoPreview && (
-                                            <div className="relative">
-                                                <video src={videoPreview} controls className="w-full max-h-32 rounded border" />
-                                                <button onClick={handleRemoveVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
-                                                    <LucideIcon name="x" size={14} />
-                                                </button>
+                                        <label className="text-[10px] text-gray-500 font-bold">動画 (任意)</label>
+                                        <div className="flex gap-1 mb-1">
+                                            <button onClick={() => setVideoInputMode('url')} className={`flex-1 py-1 px-2 text-xs rounded ${videoInputMode === 'url' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>URL入力</button>
+                                            <button onClick={() => setVideoInputMode('upload')} className={`flex-1 py-1 px-2 text-xs rounded ${videoInputMode === 'upload' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>アップロード</button>
+                                        </div>
+                                        {videoInputMode === 'url' ? (
+                                            <div className="flex flex-col gap-1">
+                                                <input type="text" placeholder="動画タイトル" value={videoTitle} onChange={(e) => setVideoTitle(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
+                                                <input type="url" placeholder="動画URL (YouTube, Vimeo等)" value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
+                                                {videoUrl && (
+                                                    <div className="text-xs text-green-600 flex items-center gap-1">
+                                                        <LucideIcon name="check-circle" size={12} /> URL設定済み
+                                                    </div>
+                                                )}
                                             </div>
+                                        ) : (
+                                            <>
+                                                <input type="file" accept="video/*" onChange={handleVideoSelect} className="w-full p-1.5 border rounded text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                                                {videoPreview && (
+                                                    <div className="relative">
+                                                        <video src={videoPreview} controls className="w-full max-h-32 rounded border" />
+                                                        <button onClick={handleRemoveVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
+                                                            <LucideIcon name="x" size={14} />
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </>
                                         )}
                                     </div>
                                     <button onClick={handleAddCommentClick} className="w-full bg-blue-600 text-white py-1.5 rounded text-xs font-bold hover:bg-blue-700 transition-colors disabled:opacity-50" disabled={!newComment.trim() || !selectedDate}>記録を追加</button>
@@ -2631,7 +2699,14 @@
              };
 
              const handleAddComment = (repId, itemId, text, date, videoData = null) => {
-                 const newComment = { id: Date.now(), date, text, video: videoData };
+                 const newComment = {
+                     id: Date.now(),
+                     date,
+                     text,
+                     video: videoData?.video || null,
+                     videoUrl: videoData?.videoUrl || null,
+                     videoTitle: videoData?.videoTitle || null
+                 };
                  setProgress(prev => {
                      const p = prev[repId] || {};
                      const itemP = p[itemId] || { status: '未着手', comments: [] };
@@ -2657,7 +2732,14 @@
                      if(p[repId] && p[repId][itemId]) {
                          p[repId][itemId].comments = p[repId][itemId].comments.map(c =>
                              c.id === commentId
-                                 ? { ...c, text: updatedData.text, date: updatedData.date, video: updatedData.video }
+                                 ? {
+                                     ...c,
+                                     text: updatedData.text,
+                                     date: updatedData.date,
+                                     video: updatedData.video,
+                                     videoUrl: updatedData.videoUrl,
+                                     videoTitle: updatedData.videoTitle
+                                 }
                                  : c
                          );
                      }
