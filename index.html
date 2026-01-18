@@ -4043,14 +4043,39 @@
                 setLoading(true);
                 setError(null);
                 try {
-                    const response = await fetch(SPREADSHEET_API_URL);
-                    const json = await response.json();
+                    const response = await fetch(SPREADSHEET_API_URL, {
+                        method: 'GET',
+                        redirect: 'follow',
+                        headers: {
+                            'Accept': 'application/json',
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const text = await response.text();
+                    let json;
+                    try {
+                        json = JSON.parse(text);
+                    } catch (parseError) {
+                        console.error('JSON parse error:', text.substring(0, 500));
+                        throw new Error('データの形式が正しくありません');
+                    }
+
+                    // GASからのエラーレスポンスをチェック
+                    if (json.error) {
+                        throw new Error(json.error);
+                    }
+
                     setData(json);
                     // 最初のチームを選択
                     if (json.teamCustomers && Object.keys(json.teamCustomers).length > 0 && !selectedTeam) {
                         setSelectedTeam(Object.keys(json.teamCustomers)[0]);
                     }
                 } catch (e) {
+                    console.error('Fetch error:', e);
                     setError('データの取得に失敗しました: ' + e.message);
                 } finally {
                     setLoading(false);
@@ -4075,9 +4100,16 @@
             if (error) {
                 return (
                     <div className="flex items-center justify-center h-full">
-                        <div className="text-center text-red-600">
-                            <p>{error}</p>
-                            <button onClick={fetchData} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                        <div className="text-center max-w-md">
+                            <div className="text-red-600 mb-4">
+                                <LucideIcon name="alert-circle" size={48} className="mx-auto mb-2" />
+                                <p className="font-bold">データ取得エラー</p>
+                                <p className="text-sm mt-2">{error}</p>
+                            </div>
+                            <p className="text-xs text-gray-500 mb-4">
+                                ブラウザのコンソール(F12)で詳細を確認できます
+                            </p>
+                            <button onClick={fetchData} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
                                 再試行
                             </button>
                         </div>
