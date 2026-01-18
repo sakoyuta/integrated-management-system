@@ -4117,11 +4117,12 @@
                 );
             }
 
-            const ranking = data?.personalRanking || [];
-            const teams = data?.teamForecast || [];
+            const ranking = Array.isArray(data?.personalRanking) ? data.personalRanking : [];
+            const teams = Array.isArray(data?.teamForecast) ? data.teamForecast : [];
             const teamCustomers = data?.teamCustomers || {};
             const teamNames = Object.keys(teamCustomers);
-            const currentTeamCustomers = selectedTeam ? (teamCustomers[selectedTeam] || []) : [];
+            const rawTeamCustomers = selectedTeam ? teamCustomers[selectedTeam] : null;
+            const currentTeamCustomers = Array.isArray(rawTeamCustomers) ? rawTeamCustomers : [];
 
             const getStatusColor = (status) => {
                 if (!status) return 'bg-gray-100 text-gray-600';
