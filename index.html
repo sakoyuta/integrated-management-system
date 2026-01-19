@@ -4076,6 +4076,16 @@
                     console.log('teamCustomers type:', typeof json.teamCustomers);
                     if (json.teamCustomers) {
                         console.log('teamCustomers keys:', Object.keys(json.teamCustomers));
+                        // 各チームの中身を確認
+                        Object.keys(json.teamCustomers).forEach(teamName => {
+                            const teamData = json.teamCustomers[teamName];
+                            console.log(`Team "${teamName}":`, teamData);
+                            console.log(`  - type: ${typeof teamData}`);
+                            console.log(`  - isArray: ${Array.isArray(teamData)}`);
+                            if (teamData && typeof teamData === 'object') {
+                                console.log(`  - keys: ${Object.keys(teamData)}`);
+                            }
+                        });
                     }
 
                     setData(json);
