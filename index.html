@@ -4038,6 +4038,8 @@
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
             const [selectedTeam, setSelectedTeam] = useState(null);
+            const [selectedMonth, setSelectedMonth] = useState(null);
+            const [showPastMonths, setShowPastMonths] = useState(false);
 
             const fetchData = async () => {
                 setLoading(true);
@@ -4089,9 +4091,22 @@
                     }
 
                     setData(json);
-                    // 最初のチームを選択
-                    if (json.teamCustomers && Object.keys(json.teamCustomers).length > 0 && !selectedTeam) {
-                        setSelectedTeam(Object.keys(json.teamCustomers)[0]);
+
+                    // 月リストを取得（データ構造によって異なる）
+                    if (json.teamCustomers) {
+                        const teamKeys = Object.keys(json.teamCustomers);
+                        console.log('Team keys:', teamKeys);
+
+                        // 最初のチームを選択
+                        if (teamKeys.length > 0 && !selectedTeam) {
+                            setSelectedTeam(teamKeys[0]);
+                        }
+
+                        // 月の情報を取得（もしデータに月情報が含まれていれば）
+                        if (json.months && json.months.length > 0 && !selectedMonth) {
+                            // 最新の月を選択
+                            setSelectedMonth(json.months[json.months.length - 1]);
+                        }
                     }
                 } catch (e) {
                     console.error('Fetch error:', e);
@@ -4146,18 +4161,33 @@
                 : {};
             const teamNames = Object.keys(teamCustomers);
 
+            // 月リストを取得（データに含まれている場合、または現在月を使用）
+            const availableMonths = data?.months || [];
+            const currentMonth = new Date().getMonth() + 1; // 1-12
+            const displayMonth = selectedMonth || (availableMonths.length > 0 ? availableMonths[availableMonths.length - 1] : `${currentMonth}月`);
+
             // 選択中のチームの顧客リストを取得（配列またはオブジェクトを配列に変換）
             const selectedTeamData = selectedTeam ? teamCustomers[selectedTeam] : null;
             let currentTeamCustomers = [];
-            if (Array.isArray(selectedTeamData)) {
-                currentTeamCustomers = selectedTeamData;
-            } else if (selectedTeamData && typeof selectedTeamData === 'object') {
-                // オブジェクトの場合、値を配列に変換（数値キーのオブジェクトの場合）
-                currentTeamCustomers = Object.values(selectedTeamData);
+
+            // データ構造に応じて顧客リストを取得
+            if (selectedTeamData) {
+                if (Array.isArray(selectedTeamData)) {
+                    currentTeamCustomers = selectedTeamData;
+                } else if (typeof selectedTeamData === 'object') {
+                    // 月別データの場合 { "1月": [...], "2月": [...] }
+                    if (displayMonth && selectedTeamData[displayMonth]) {
+                        const monthData = selectedTeamData[displayMonth];
+                        currentTeamCustomers = Array.isArray(monthData) ? monthData : Object.values(monthData);
+                    } else {
+                        // 月別ではない場合、全データを配列に変換
+                        currentTeamCustomers = Object.values(selectedTeamData);
+                    }
+                }
             }
 
             // デバッグログ（レンダリング時）
-            console.log('Rendering - teamNames:', teamNames, 'selectedTeam:', selectedTeam, 'selectedTeamData:', selectedTeamData, 'currentTeamCustomers count:', currentTeamCustomers.length);
+            console.log('Rendering - teamNames:', teamNames, 'selectedTeam:', selectedTeam, 'availableMonths:', availableMonths, 'displayMonth:', displayMonth, 'currentTeamCustomers count:', currentTeamCustomers.length);
 
             const getStatusColor = (status) => {
                 if (!status) return 'bg-gray-100 text-gray-600';
@@ -4256,8 +4286,30 @@
                         {/* チーム別顧客情報 */}
                         {teamNames.length > 0 && (
                             <div className="bg-white rounded-xl shadow-md overflow-hidden">
-                                <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-4 font-bold flex items-center gap-2">
-                                    <LucideIcon name="clipboard-list" size={20}/> チーム別顧客情報
+                                <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-4 font-bold flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <LucideIcon name="clipboard-list" size={20}/> チーム別顧客情報
+                                    </div>
+                                    {/* 月選択 */}
+                                    {availableMonths.length > 0 && (
+                                        <div className="flex items-center gap-2">
+                                            <select
+                                                value={displayMonth}
+                                                onChange={(e) => setSelectedMonth(e.target.value)}
+                                                className="px-3 py-1 rounded text-sm text-gray-700 bg-white border-0 focus:ring-2 focus:ring-purple-300"
+                                            >
+                                                {availableMonths.map(month => (
+                                                    <option key={month} value={month}>{month}</option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                onClick={() => setShowPastMonths(!showPastMonths)}
+                                                className="text-xs text-purple-200 hover:text-white underline"
+                                            >
+                                                {showPastMonths ? '閉じる' : '過去月を見る'}
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* チームタブ */}
@@ -4285,35 +4337,41 @@
                                 </div>
 
                                 {/* 顧客テーブル */}
-                                <div className="overflow-x-auto">
+                                <div className="overflow-x-auto max-h-[500px]">
                                     <table className="w-full text-sm">
-                                        <thead className="bg-gray-50">
+                                        <thead className="bg-gray-50 sticky top-0">
                                             <tr>
-                                                <th className="text-left p-3 font-semibold whitespace-nowrap">担当</th>
-                                                <th className="text-left p-3 font-semibold whitespace-nowrap">顧客名</th>
-                                                <th className="text-left p-3 font-semibold whitespace-nowrap">ステータス</th>
-                                                <th className="text-left p-3 font-semibold whitespace-nowrap">土地</th>
-                                                <th className="text-center p-3 font-semibold whitespace-nowrap">打合せ</th>
-                                                <th className="text-left p-3 font-semibold whitespace-nowrap">最終連絡</th>
-                                                <th className="text-left p-3 font-semibold whitespace-nowrap">次回アポ</th>
-                                                <th className="text-left p-3 font-semibold whitespace-nowrap">現状</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">担当</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">お客様氏名</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">土地有無</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">ステータス</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">連絡/限定会員</th>
+                                                <th className="text-center p-2 font-semibold whitespace-nowrap text-xs">打合せ回数</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">最終連絡日</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">次回アポ</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">現状</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">問題・懸念点</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">次回アクション</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {(Array.isArray(currentTeamCustomers) ? currentTeamCustomers : []).map((customer, idx) => (
                                                 <tr key={idx} className="border-b hover:bg-gray-50">
-                                                    <td className="p-3 whitespace-nowrap">{customer?.['担当'] || customer?.staff || '-'}</td>
-                                                    <td className="p-3 font-medium">{customer?.['お客様氏名'] || customer?.name || '-'}</td>
-                                                    <td className="p-3">
-                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(customer?.['ステータス'] || customer?.status)}`}>
-                                                            {customer?.['ステータス'] || customer?.status || '-'}
+                                                    <td className="p-2 whitespace-nowrap text-xs">{customer?.['担当'] || '-'}</td>
+                                                    <td className="p-2 font-medium text-xs">{customer?.['お客様氏名'] || '-'}</td>
+                                                    <td className="p-2 whitespace-nowrap text-xs">{customer?.['土地有無'] || '-'}</td>
+                                                    <td className="p-2 text-xs">
+                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(customer?.['ステータス'])}`}>
+                                                            {customer?.['ステータス'] || '-'}
                                                         </span>
                                                     </td>
-                                                    <td className="p-3 whitespace-nowrap">{customer?.['土地有無'] || customer?.hasLand || '-'}</td>
-                                                    <td className="text-center p-3">{customer?.['打合せ回数'] || customer?.meetingCount || 0}</td>
-                                                    <td className="p-3 whitespace-nowrap text-gray-600">{customer?.['最終連絡日'] || customer?.lastContact || '-'}</td>
-                                                    <td className="p-3 whitespace-nowrap text-blue-600">{customer?.['次回アポ'] || customer?.nextAppointment || '-'}</td>
-                                                    <td className="p-3 max-w-xs truncate" title={customer?.['現状'] || customer?.currentStatus}>{customer?.['現状'] || customer?.currentStatus || '-'}</td>
+                                                    <td className="p-2 whitespace-nowrap text-xs">{customer?.['連絡/限定会員'] || customer?.['連絡'] || '-'}</td>
+                                                    <td className="text-center p-2 text-xs">{customer?.['打合せ回数'] || 0}</td>
+                                                    <td className="p-2 whitespace-nowrap text-xs text-gray-600">{customer?.['最終連絡日'] || '-'}</td>
+                                                    <td className="p-2 whitespace-nowrap text-xs text-blue-600">{customer?.['次回アポ'] || '-'}</td>
+                                                    <td className="p-2 text-xs max-w-[150px] truncate" title={customer?.['現状']}>{customer?.['現状'] || '-'}</td>
+                                                    <td className="p-2 text-xs max-w-[150px] truncate" title={customer?.['問題・懸念点']}>{customer?.['問題・懸念点'] || '-'}</td>
+                                                    <td className="p-2 text-xs max-w-[150px] truncate" title={customer?.['次回アクション']}>{customer?.['次回アクション'] || '-'}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
