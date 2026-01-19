@@ -4146,12 +4146,18 @@
                 : {};
             const teamNames = Object.keys(teamCustomers);
 
-            // 選択中のチームの顧客リストを取得
+            // 選択中のチームの顧客リストを取得（配列またはオブジェクトを配列に変換）
             const selectedTeamData = selectedTeam ? teamCustomers[selectedTeam] : null;
-            const currentTeamCustomers = Array.isArray(selectedTeamData) ? selectedTeamData : [];
+            let currentTeamCustomers = [];
+            if (Array.isArray(selectedTeamData)) {
+                currentTeamCustomers = selectedTeamData;
+            } else if (selectedTeamData && typeof selectedTeamData === 'object') {
+                // オブジェクトの場合、値を配列に変換（数値キーのオブジェクトの場合）
+                currentTeamCustomers = Object.values(selectedTeamData);
+            }
 
             // デバッグログ（レンダリング時）
-            console.log('Rendering - teamNames:', teamNames, 'selectedTeam:', selectedTeam, 'currentTeamCustomers count:', currentTeamCustomers.length);
+            console.log('Rendering - teamNames:', teamNames, 'selectedTeam:', selectedTeam, 'selectedTeamData:', selectedTeamData, 'currentTeamCustomers count:', currentTeamCustomers.length);
 
             const getStatusColor = (status) => {
                 if (!status) return 'bg-gray-100 text-gray-600';
@@ -4268,7 +4274,11 @@
                                         >
                                             {teamName}
                                             <span className="ml-2 px-2 py-0.5 bg-gray-200 rounded-full text-xs">
-                                                {Array.isArray(teamCustomers[teamName]) ? teamCustomers[teamName].length : 0}
+                                                {Array.isArray(teamCustomers[teamName])
+                                                    ? teamCustomers[teamName].length
+                                                    : (teamCustomers[teamName] && typeof teamCustomers[teamName] === 'object')
+                                                        ? Object.keys(teamCustomers[teamName]).length
+                                                        : 0}
                                             </span>
                                         </button>
                                     ))}
@@ -4292,18 +4302,18 @@
                                         <tbody>
                                             {(Array.isArray(currentTeamCustomers) ? currentTeamCustomers : []).map((customer, idx) => (
                                                 <tr key={idx} className="border-b hover:bg-gray-50">
-                                                    <td className="p-3 whitespace-nowrap">{customer?.staff || '-'}</td>
-                                                    <td className="p-3 font-medium">{customer?.status || customer?.name || '-'}</td>
+                                                    <td className="p-3 whitespace-nowrap">{customer?.['担当'] || customer?.staff || '-'}</td>
+                                                    <td className="p-3 font-medium">{customer?.['お客様氏名'] || customer?.name || '-'}</td>
                                                     <td className="p-3">
-                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(customer?.hasLand)}`}>
-                                                            {customer?.hasLand || '-'}
+                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(customer?.['ステータス'] || customer?.status)}`}>
+                                                            {customer?.['ステータス'] || customer?.status || '-'}
                                                         </span>
                                                     </td>
-                                                    <td className="p-3 whitespace-nowrap">{customer?.memberType || '-'}</td>
-                                                    <td className="text-center p-3">{customer?.meetingCount || 0}</td>
-                                                    <td className="p-3 whitespace-nowrap text-gray-600">{customer?.lastContact || '-'}</td>
-                                                    <td className="p-3 whitespace-nowrap text-blue-600">{customer?.nextAppointment || '-'}</td>
-                                                    <td className="p-3 max-w-xs truncate" title={customer?.currentStatus}>{customer?.currentStatus || '-'}</td>
+                                                    <td className="p-3 whitespace-nowrap">{customer?.['土地有無'] || customer?.hasLand || '-'}</td>
+                                                    <td className="text-center p-3">{customer?.['打合せ回数'] || customer?.meetingCount || 0}</td>
+                                                    <td className="p-3 whitespace-nowrap text-gray-600">{customer?.['最終連絡日'] || customer?.lastContact || '-'}</td>
+                                                    <td className="p-3 whitespace-nowrap text-blue-600">{customer?.['次回アポ'] || customer?.nextAppointment || '-'}</td>
+                                                    <td className="p-3 max-w-xs truncate" title={customer?.['現状'] || customer?.currentStatus}>{customer?.['現状'] || customer?.currentStatus || '-'}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
