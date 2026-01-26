@@ -1360,6 +1360,7 @@
                 const newStep = { id: newId, title: "新規ステップ", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] };
                 setFlowSteps([...flowSteps, newStep]);
                 setSelectedStepId(newId);
+                setIsEditMode(true);
             };
             const handleUpdateStep = (id, updatedStep) => setFlowSteps(flowSteps.map(s => s.id === id ? updatedStep : s));
             const handleDragSort = () => {
@@ -4393,33 +4394,1133 @@
         };
 
         // ==========================================
+        //  5.5. Schedule App (担当営業のスケジュール)
+        // ==========================================
+
+        // Google Calendar API Key (公開カレンダー用)
+        const GOOGLE_CALENDAR_API_KEY = 'AIzaSyCFFr4xABScnzb-jz9OpAGGPRVhOd9j5is';
+
+        // デフォルトチームリスト
+        const DEFAULT_TEAMS = ['全体', '京都', '奈良', '本社', '豊中'];
+
+        const ScheduleApp = () => {
+            const [scheduleData, setScheduleData, isLoading] = useFirebaseState('scheduleData', {
+                members: [],
+                teams: DEFAULT_TEAMS
+            });
+            const [selectedMemberId, setSelectedMemberId] = useState(null);
+            const [isEditMode, setIsEditMode] = useState(false);
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [newMemberName, setNewMemberName] = useState('');
+            const [newCalendarUrl, setNewCalendarUrl] = useState('');
+            const [newMemberTeam, setNewMemberTeam] = useState('');
+            const [activeTab, setActiveTab] = useState('availability'); // 'availability' or 'calendar'
+            const [eventsData, setEventsData] = useState({});
+            const [loadingEvents, setLoadingEvents] = useState(false);
+            const [selectedWeekOffset, setSelectedWeekOffset] = useState(0);
+            const [selectedTeamFilter, setSelectedTeamFilter] = useState('全体');
+            const [expandedMemberId, setExpandedMemberId] = useState(null);
+            const [showTeamModal, setShowTeamModal] = useState(false);
+            const [newTeamName, setNewTeamName] = useState('');
+            const [editingTeamIndex, setEditingTeamIndex] = useState(null);
+            const [editingTeamName, setEditingTeamName] = useState('');
+
+            // チームリスト（データになければデフォルトを使用）
+            const teams = scheduleData.teams?.length > 0 ? scheduleData.teams : DEFAULT_TEAMS;
+
+            // チーム管理関数
+            const handleAddTeam = () => {
+                if (!newTeamName.trim() || teams.includes(newTeamName.trim())) return;
+                const newTeams = [...teams, newTeamName.trim()];
+                setScheduleData({ ...scheduleData, teams: newTeams });
+                setNewTeamName('');
+            };
+
+            const handleUpdateTeam = (index) => {
+                if (!editingTeamName.trim() || index === 0) return; // 「全体」は編集不可
+                const oldName = teams[index];
+                const newTeams = [...teams];
+                newTeams[index] = editingTeamName.trim();
+                // メンバーのチーム名も更新
+                const updatedMembers = (scheduleData.members || []).map(m =>
+                    m.team === oldName ? { ...m, team: editingTeamName.trim() } : m
+                );
+                setScheduleData({ ...scheduleData, teams: newTeams, members: updatedMembers });
+                setEditingTeamIndex(null);
+                setEditingTeamName('');
+            };
+
+            const handleDeleteTeam = (index) => {
+                if (index === 0) return; // 「全体」は削除不可
+                const teamToDelete = teams[index];
+                if (!confirm(`「${teamToDelete}」を削除しますか？\nこのチームに所属するメンバーのチーム設定は解除されます。`)) return;
+                const newTeams = teams.filter((_, i) => i !== index);
+                // メンバーのチーム名をクリア
+                const updatedMembers = (scheduleData.members || []).map(m =>
+                    m.team === teamToDelete ? { ...m, team: '' } : m
+                );
+                setScheduleData({ ...scheduleData, teams: newTeams, members: updatedMembers });
+                if (selectedTeamFilter === teamToDelete) {
+                    setSelectedTeamFilter('全体');
+                }
+            };
+
+            // フィルタリングされたメンバー
+            const filteredMembers = useMemo(() => {
+                if (selectedTeamFilter === '全体') {
+                    return scheduleData.members || [];
+                }
+                return (scheduleData.members || []).filter(m => m.team === selectedTeamFilter);
+            }, [scheduleData.members, selectedTeamFilter]);
+
+            const selectedMember = scheduleData.members?.find(m => m.id === selectedMemberId);
+
+            // 3週間分の土日を取得
+            const getWeekendDates = (weekOffset = 0) => {
+                const today = new Date();
+                const currentDay = today.getDay();
+
+                // 今週の土曜日を計算
+                const daysUntilSaturday = (6 - currentDay + 7) % 7 || 7;
+                const saturday1 = new Date(today);
+                saturday1.setDate(today.getDate() + daysUntilSaturday + (weekOffset * 7));
+                saturday1.setHours(0, 0, 0, 0);
+
+                const sunday1 = new Date(saturday1);
+                sunday1.setDate(saturday1.getDate() + 1);
+
+                // 2週目の土日
+                const saturday2 = new Date(saturday1);
+                saturday2.setDate(saturday1.getDate() + 7);
+
+                const sunday2 = new Date(saturday2);
+                sunday2.setDate(saturday2.getDate() + 1);
+
+                // 3週目の土日
+                const saturday3 = new Date(saturday2);
+                saturday3.setDate(saturday2.getDate() + 7);
+
+                const sunday3 = new Date(saturday3);
+                sunday3.setDate(saturday3.getDate() + 1);
+
+                return { saturday1, sunday1, saturday2, sunday2, saturday3, sunday3 };
+            };
+
+            const { saturday1, sunday1, saturday2, sunday2, saturday3, sunday3 } = getWeekendDates(selectedWeekOffset);
+
+            // カレンダーIDを抽出
+            const extractCalendarId = (calendarUrl) => {
+                if (!calendarUrl) return null;
+                if (calendarUrl.includes('@')) {
+                    // メールアドレス形式の場合
+                    const match = calendarUrl.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+)/);
+                    return match ? match[1] : calendarUrl;
+                }
+                // 埋め込みURLからsrcパラメータを抽出
+                const srcMatch = calendarUrl.match(/src=([^&]+)/);
+                if (srcMatch) {
+                    return decodeURIComponent(srcMatch[1]);
+                }
+                return calendarUrl;
+            };
+
+            // Google Calendar APIから予定を取得
+            const [apiError, setApiError] = useState(null);
+
+            const fetchCalendarEvents = async (calendarId, startDate, endDate) => {
+                try {
+                    const timeMin = new Date(startDate);
+                    timeMin.setHours(0, 0, 0, 0);
+                    const timeMax = new Date(endDate);
+                    timeMax.setHours(23, 59, 59, 999);
+
+                    const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?` +
+                        `key=${GOOGLE_CALENDAR_API_KEY}&` +
+                        `timeMin=${timeMin.toISOString()}&` +
+                        `timeMax=${timeMax.toISOString()}&` +
+                        `singleEvents=true&` +
+                        `orderBy=startTime`;
+
+                    console.log('Fetching calendar:', calendarId);
+                    console.log('API URL:', url);
+
+                    const response = await fetch(url);
+                    const data = await response.json();
+
+                    console.log('API Response status:', response.status);
+                    console.log('API Response data:', data);
+
+                    if (!response.ok) {
+                        console.error('Calendar API error:', response.status, data);
+                        if (data.error) {
+                            setApiError(`API Error: ${data.error.message}`);
+                        }
+                        return [];
+                    }
+
+                    console.log('Found events:', data.items?.length || 0);
+                    // 各イベントの詳細をログ出力（デバッグ用）
+                    data.items?.forEach((event, i) => {
+                        console.log(`Event ${i}:`, {
+                            summary: event.summary,
+                            organizer: event.organizer,
+                            creator: event.creator,
+                            start: event.start,
+                            end: event.end
+                        });
+                    });
+                    return data.items || [];
+                } catch (error) {
+                    console.error('Failed to fetch calendar events:', error);
+                    setApiError(`Fetch Error: ${error.message}`);
+                    return [];
+                }
+            };
+
+            // 全メンバーの予定を取得（3週間分）
+            const fetchAllMembersEvents = async () => {
+                if (!scheduleData.members?.length) return;
+
+                setLoadingEvents(true);
+                const newEventsData = {};
+
+                // 3週間目の日曜日までを取得範囲に設定
+                const endOfSunday3 = new Date(sunday3);
+                endOfSunday3.setHours(23, 59, 59, 999);
+
+                for (const member of scheduleData.members) {
+                    if (member.calendarUrl) {
+                        const calendarId = extractCalendarId(member.calendarUrl);
+                        if (calendarId) {
+                            const events = await fetchCalendarEvents(calendarId, saturday1, endOfSunday3);
+                            newEventsData[member.id] = events;
+                        }
+                    }
+                }
+
+                setEventsData(newEventsData);
+                setLoadingEvents(false);
+            };
+
+            // 予定取得
+            useEffect(() => {
+                if (!isLoading && scheduleData.members?.length > 0) {
+                    fetchAllMembersEvents();
+                }
+            }, [isLoading, scheduleData.members, selectedWeekOffset]);
+
+            // 最初のメンバーを自動選択
+            useEffect(() => {
+                if (!isLoading && scheduleData.members?.length > 0 && !selectedMemberId) {
+                    setSelectedMemberId(scheduleData.members[0].id);
+                }
+            }, [isLoading, scheduleData.members, selectedMemberId]);
+
+            // 除外するキーワード（これらを含む予定は「空き」として扱う）
+            const IGNORE_KEYWORDS = ['車'];
+            // 必ず忙しいとして扱うキーワード（これらを含む予定は除外しない）
+            const BUSY_KEYWORDS = ['休み', '休暇', '有給'];
+
+            // 時間帯の空き状況を計算（9:00-19:00を1時間単位で）
+            const calculateAvailability = (memberId, date) => {
+                const events = eventsData[memberId] || [];
+                const slots = [];
+
+                for (let hour = 9; hour < 19; hour++) {
+                    const slotStart = new Date(date);
+                    slotStart.setHours(hour, 0, 0, 0);
+                    const slotEnd = new Date(date);
+                    slotEnd.setHours(hour + 1, 0, 0, 0);
+
+                    // この時間帯に予定があるかチェック
+                    const isBusy = events.some(event => {
+                        const eventTitle = event.summary || '';
+                        const calendarName = event.organizer?.displayName || '';
+
+                        // 「休み」等を含む予定は必ず忙しいとして扱う
+                        if (BUSY_KEYWORDS.some(keyword => eventTitle.includes(keyword))) {
+                            // この予定は忙しいとして判定を続行
+                        }
+                        // 「車」を含むカレンダーまたは予定タイトルは除外（空きとして扱う）
+                        else if (IGNORE_KEYWORDS.some(keyword =>
+                            calendarName.includes(keyword) || eventTitle.includes(keyword)
+                        )) {
+                            return false; // この予定は無視
+                        }
+
+                        const eventStart = new Date(event.start.dateTime || event.start.date);
+                        const eventEnd = new Date(event.end.dateTime || event.end.date);
+
+                        // 終日イベントの場合
+                        if (event.start.date && !event.start.dateTime) {
+                            const eventDate = new Date(event.start.date);
+                            return eventDate.toDateString() === date.toDateString();
+                        }
+
+                        // 時間指定イベントの場合、重なりをチェック
+                        return eventStart < slotEnd && eventEnd > slotStart;
+                    });
+
+                    slots.push({ hour, isBusy });
+                }
+
+                return slots;
+            };
+
+            // 空いている人を時間帯ごとに集計
+            const getAvailableMembersBySlot = (date) => {
+                const slotData = {};
+
+                for (let hour = 9; hour < 19; hour++) {
+                    slotData[hour] = [];
+
+                    scheduleData.members?.forEach(member => {
+                        if (!member.calendarUrl) return;
+
+                        const availability = calculateAvailability(member.id, date);
+                        const slot = availability.find(s => s.hour === hour);
+
+                        if (slot && !slot.isBusy) {
+                            slotData[hour].push(member);
+                        }
+                    });
+                }
+
+                return slotData;
+            };
+
+            const handleAddMember = () => {
+                if (!newMemberName.trim()) return;
+                const newId = 'member_' + Date.now();
+                const newMember = {
+                    id: newId,
+                    name: newMemberName.trim(),
+                    calendarUrl: newCalendarUrl.trim(),
+                    team: newMemberTeam || teams[1] || ''
+                };
+                setScheduleData({
+                    ...scheduleData,
+                    members: [...(scheduleData.members || []), newMember]
+                });
+                setNewMemberName('');
+                setNewCalendarUrl('');
+                setNewMemberTeam('');
+                setShowAddModal(false);
+                setSelectedMemberId(newId);
+            };
+
+            const handleUpdateMember = (memberId, updates) => {
+                setScheduleData({
+                    ...scheduleData,
+                    members: scheduleData.members.map(m =>
+                        m.id === memberId ? { ...m, ...updates } : m
+                    )
+                });
+            };
+
+            const handleDeleteMember = (memberId) => {
+                if (!confirm('このメンバーを削除してもよろしいですか？')) return;
+                const newMembers = scheduleData.members.filter(m => m.id !== memberId);
+                setScheduleData({ ...scheduleData, members: newMembers });
+                if (selectedMemberId === memberId) {
+                    setSelectedMemberId(newMembers[0]?.id || null);
+                }
+            };
+
+            // Googleカレンダーの埋め込みURLを生成
+            const getEmbedUrl = (calendarUrl) => {
+                if (!calendarUrl) return null;
+                if (calendarUrl.includes('calendar.google.com/calendar/embed')) {
+                    return calendarUrl;
+                }
+                if (calendarUrl.includes('@')) {
+                    return `https://calendar.google.com/calendar/embed?src=${encodeURIComponent(calendarUrl)}&ctz=Asia/Tokyo`;
+                }
+                return calendarUrl;
+            };
+
+            const formatDate = (date) => {
+                return `${date.getMonth() + 1}/${date.getDate()}(${['日', '月', '火', '水', '木', '金', '土'][date.getDay()]})`;
+            };
+
+            const formatHour = (hour) => `${hour}:00`;
+
+            if (isLoading) {
+                return (
+                    <div className="h-full flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mx-auto mb-4"></div>
+                            <p className="text-gray-600">読み込み中...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            const saturday1Slots = getAvailableMembersBySlot(saturday1);
+            const sunday1Slots = getAvailableMembersBySlot(sunday1);
+            const saturday2Slots = getAvailableMembersBySlot(saturday2);
+            const sunday2Slots = getAvailableMembersBySlot(sunday2);
+            const saturday3Slots = getAvailableMembersBySlot(saturday3);
+            const sunday3Slots = getAvailableMembersBySlot(sunday3);
+
+            return (
+                <div className="flex h-full bg-gray-100">
+                    {/* 左サイドバー: メンバーリスト */}
+                    <div className="w-72 bg-white shadow-lg flex flex-col flex-shrink-0">
+                        <div className="p-4 border-b bg-gradient-to-r from-teal-600 to-teal-700">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                <LucideIcon name="calendar" size={20} />
+                                担当営業スケジュール
+                            </h2>
+                        </div>
+
+                        <div className="p-3 border-b">
+                            <button
+                                onClick={() => setShowAddModal(true)}
+                                className="w-full py-2 px-4 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors flex items-center justify-center gap-2 font-medium"
+                            >
+                                <LucideIcon name="plus" size={18} />
+                                メンバーを追加
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-2">
+                            {scheduleData.members?.length === 0 ? (
+                                <div className="text-center text-gray-500 py-8">
+                                    <LucideIcon name="users" size={48} className="mx-auto mb-3 opacity-30" />
+                                    <p className="text-sm">メンバーがいません</p>
+                                </div>
+                            ) : (
+                                scheduleData.members?.map(member => (
+                                    <div
+                                        key={member.id}
+                                        onClick={() => { setSelectedMemberId(member.id); setActiveTab('calendar'); }}
+                                        className={`p-3 rounded-lg cursor-pointer mb-2 transition-all ${
+                                            selectedMemberId === member.id && activeTab === 'calendar'
+                                                ? 'bg-teal-100 border-2 border-teal-500'
+                                                : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                                        }`}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-8 h-8 bg-teal-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                                                    {member.name.charAt(0)}
+                                                </div>
+                                                <div>
+                                                    <div className="font-medium text-gray-800">{member.name}</div>
+                                                    {member.team && (
+                                                        <div className="text-xs text-gray-500">{member.team}</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {member.calendarUrl && (
+                                                <LucideIcon name="check-circle" size={16} className="text-green-500" />
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    {/* メインエリア */}
+                    <div className="flex-1 p-6 overflow-hidden flex flex-col">
+                        {/* タブ切り替え */}
+                        <div className="bg-white rounded-t-xl shadow-lg border-b flex">
+                            <button
+                                onClick={() => setActiveTab('availability')}
+                                className={`flex-1 py-4 px-6 font-bold text-center transition-colors ${
+                                    activeTab === 'availability'
+                                        ? 'bg-teal-600 text-white'
+                                        : 'text-gray-600 hover:bg-gray-100'
+                                }`}
+                            >
+                                <LucideIcon name="users" size={20} className="inline mr-2" />
+                                土日の空き時間一覧
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('calendar')}
+                                className={`flex-1 py-4 px-6 font-bold text-center transition-colors ${
+                                    activeTab === 'calendar'
+                                        ? 'bg-teal-600 text-white'
+                                        : 'text-gray-600 hover:bg-gray-100'
+                                }`}
+                            >
+                                <LucideIcon name="calendar" size={20} className="inline mr-2" />
+                                個別カレンダー
+                            </button>
+                        </div>
+
+                        {/* 空き時間一覧タブ */}
+                        {activeTab === 'availability' && (
+                            <div className="bg-white rounded-b-xl shadow-lg flex-1 overflow-auto p-6">
+                                {/* 週選択（3週間表示） */}
+                                <div className="flex items-center justify-between mb-6">
+                                    <button
+                                        onClick={() => setSelectedWeekOffset(prev => prev - 3)}
+                                        className="p-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition-colors"
+                                    >
+                                        <LucideIcon name="chevron-left" size={24} />
+                                    </button>
+                                    <div className="text-center">
+                                        <h3 className="text-xl font-bold text-gray-800">
+                                            {formatDate(saturday1)} ～ {formatDate(sunday3)}
+                                        </h3>
+                                        <p className="text-sm text-gray-500 mt-1">
+                                            {selectedWeekOffset === 0 ? '今週末から3週間' : selectedWeekOffset > 0 ? `${selectedWeekOffset}週間後から3週間` : `${Math.abs(selectedWeekOffset)}週間前から3週間`}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => setSelectedWeekOffset(prev => prev + 3)}
+                                        className="p-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition-colors"
+                                    >
+                                        <LucideIcon name="chevron-right" size={24} />
+                                    </button>
+                                </div>
+
+                                {/* チームフィルター */}
+                                <div className="mb-6 flex flex-wrap items-center gap-2">
+                                    {teams.map(team => (
+                                        <button
+                                            key={team}
+                                            onClick={() => setSelectedTeamFilter(team)}
+                                            className={`px-4 py-2 rounded-full font-medium transition-colors ${
+                                                selectedTeamFilter === team
+                                                    ? 'bg-teal-600 text-white'
+                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                            }`}
+                                        >
+                                            {team}
+                                        </button>
+                                    ))}
+                                    <button
+                                        onClick={() => setShowTeamModal(true)}
+                                        className="px-3 py-2 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors text-sm font-medium"
+                                        title="チームを編集"
+                                    >
+                                        編集
+                                    </button>
+                                </div>
+
+                                {apiError && (
+                                    <div className="mb-4 p-4 bg-red-100 border border-red-300 rounded-lg text-red-700">
+                                        <p className="font-bold flex items-center gap-2">
+                                            <LucideIcon name="alert-circle" size={20} />
+                                            Calendar API エラー
+                                        </p>
+                                        <p className="text-sm mt-1">{apiError}</p>
+                                        <p className="text-xs mt-2">
+                                            Google Cloud Console で Calendar API を有効にしてください。
+                                        </p>
+                                    </div>
+                                )}
+
+                                {loadingEvents ? (
+                                    <div className="flex items-center justify-center py-12">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600 mr-3"></div>
+                                        <span className="text-gray-600">カレンダーを読み込み中...</span>
+                                    </div>
+                                ) : filteredMembers?.filter(m => m.calendarUrl).length === 0 ? (
+                                    <div className="text-center py-12 text-gray-500">
+                                        <LucideIcon name="calendar-x" size={64} className="mx-auto mb-4 opacity-30" />
+                                        <p>カレンダーが設定されているメンバーがいません</p>
+                                        <p className="text-sm mt-2">メンバーを追加してGoogleカレンダーを連携してください</p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {filteredMembers?.filter(m => m.calendarUrl).map(member => {
+                                            // 1週目
+                                            const sat1Avail = calculateAvailability(member.id, saturday1);
+                                            const sun1Avail = calculateAvailability(member.id, sunday1);
+                                            const sat1FreeSlots = sat1Avail.filter(s => !s.isBusy);
+                                            const sun1FreeSlots = sun1Avail.filter(s => !s.isBusy);
+                                            const sat1FreeCount = sat1FreeSlots.length;
+                                            const sun1FreeCount = sun1FreeSlots.length;
+
+                                            // 2週目
+                                            const sat2Avail = calculateAvailability(member.id, saturday2);
+                                            const sun2Avail = calculateAvailability(member.id, sunday2);
+                                            const sat2FreeSlots = sat2Avail.filter(s => !s.isBusy);
+                                            const sun2FreeSlots = sun2Avail.filter(s => !s.isBusy);
+                                            const sat2FreeCount = sat2FreeSlots.length;
+                                            const sun2FreeCount = sun2FreeSlots.length;
+
+                                            // 3週目
+                                            const sat3Avail = calculateAvailability(member.id, saturday3);
+                                            const sun3Avail = calculateAvailability(member.id, sunday3);
+                                            const sat3FreeSlots = sat3Avail.filter(s => !s.isBusy);
+                                            const sun3FreeSlots = sun3Avail.filter(s => !s.isBusy);
+                                            const sat3FreeCount = sat3FreeSlots.length;
+                                            const sun3FreeCount = sun3FreeSlots.length;
+
+                                            const totalFree = sat1FreeCount + sun1FreeCount + sat2FreeCount + sun2FreeCount + sat3FreeCount + sun3FreeCount;
+                                            const isExpanded = expandedMemberId === member.id;
+
+                                            // 連続した空き時間をグループ化
+                                            const groupConsecutiveSlots = (slots) => {
+                                                if (slots.length === 0) return [];
+                                                const groups = [];
+                                                let currentGroup = [slots[0]];
+
+                                                for (let i = 1; i < slots.length; i++) {
+                                                    if (slots[i].hour === currentGroup[currentGroup.length - 1].hour + 1) {
+                                                        currentGroup.push(slots[i]);
+                                                    } else {
+                                                        groups.push(currentGroup);
+                                                        currentGroup = [slots[i]];
+                                                    }
+                                                }
+                                                groups.push(currentGroup);
+                                                return groups;
+                                            };
+
+                                            const sat1Groups = groupConsecutiveSlots(sat1FreeSlots);
+                                            const sun1Groups = groupConsecutiveSlots(sun1FreeSlots);
+                                            const sat2Groups = groupConsecutiveSlots(sat2FreeSlots);
+                                            const sun2Groups = groupConsecutiveSlots(sun2FreeSlots);
+                                            const sat3Groups = groupConsecutiveSlots(sat3FreeSlots);
+                                            const sun3Groups = groupConsecutiveSlots(sun3FreeSlots);
+
+                                            return (
+                                                <div
+                                                    key={member.id}
+                                                    className={`bg-white rounded-xl border-2 transition-all cursor-pointer ${
+                                                        totalFree > 0
+                                                            ? 'border-green-300 hover:border-green-500'
+                                                            : 'border-gray-200 hover:border-gray-400'
+                                                    }`}
+                                                    onClick={() => setExpandedMemberId(isExpanded ? null : member.id)}
+                                                >
+                                                    {/* ヘッダー部分 */}
+                                                    <div className="p-4">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg ${
+                                                                    totalFree > 0 ? 'bg-green-500' : 'bg-gray-400'
+                                                                }`}>
+                                                                    {member.name.charAt(0)}
+                                                                </div>
+                                                                <div>
+                                                                    <div className="font-bold text-gray-800 text-lg">{member.name}</div>
+                                                                    {member.team && (
+                                                                        <span className="text-xs bg-gray-200 px-2 py-0.5 rounded-full text-gray-600">
+                                                                            {member.team}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                {totalFree > 0 ? (
+                                                                    <div className="text-green-600 font-bold text-xl">{totalFree}h 空き</div>
+                                                                ) : (
+                                                                    <div className="text-gray-400 font-bold">空きなし</div>
+                                                                )}
+                                                                <LucideIcon
+                                                                    name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                                                                    size={20}
+                                                                    className="text-gray-400 ml-auto"
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        {/* 簡易サマリー（3週間分） */}
+                                                        <div className="mt-3 space-y-1">
+                                                            <div className="flex gap-3 text-xs">
+                                                                <span className="text-gray-500 w-12">1週目:</span>
+                                                                <span className={`${sat1FreeCount > 0 ? 'text-blue-600' : 'text-gray-400'}`}>土 {sat1FreeCount}h</span>
+                                                                <span className={`${sun1FreeCount > 0 ? 'text-orange-600' : 'text-gray-400'}`}>日 {sun1FreeCount}h</span>
+                                                            </div>
+                                                            <div className="flex gap-3 text-xs">
+                                                                <span className="text-gray-500 w-12">2週目:</span>
+                                                                <span className={`${sat2FreeCount > 0 ? 'text-blue-600' : 'text-gray-400'}`}>土 {sat2FreeCount}h</span>
+                                                                <span className={`${sun2FreeCount > 0 ? 'text-orange-600' : 'text-gray-400'}`}>日 {sun2FreeCount}h</span>
+                                                            </div>
+                                                            <div className="flex gap-3 text-xs">
+                                                                <span className="text-gray-500 w-12">3週目:</span>
+                                                                <span className={`${sat3FreeCount > 0 ? 'text-blue-600' : 'text-gray-400'}`}>土 {sat3FreeCount}h</span>
+                                                                <span className={`${sun3FreeCount > 0 ? 'text-orange-600' : 'text-gray-400'}`}>日 {sun3FreeCount}h</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* 展開時の詳細（3週間分） */}
+                                                    {isExpanded && (
+                                                        <div className="border-t bg-gray-50 p-4">
+                                                            {/* 1週目 */}
+                                                            <div className="mb-4">
+                                                                <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">1週目</h4>
+                                                                <div className="grid grid-cols-2 gap-4">
+                                                                    <div>
+                                                                        <h5 className="font-bold text-blue-700 mb-2 flex items-center gap-1 text-sm">
+                                                                            <LucideIcon name="calendar" size={14} />
+                                                                            {formatDate(saturday1)}
+                                                                        </h5>
+                                                                        {sat1Groups.length > 0 ? (
+                                                                            <div className="space-y-1">
+                                                                                {sat1Groups.map((group, idx) => (
+                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <p className="text-gray-400 text-xs">空きなし</p>
+                                                                        )}
+                                                                    </div>
+                                                                    <div>
+                                                                        <h5 className="font-bold text-orange-700 mb-2 flex items-center gap-1 text-sm">
+                                                                            <LucideIcon name="calendar" size={14} />
+                                                                            {formatDate(sunday1)}
+                                                                        </h5>
+                                                                        {sun1Groups.length > 0 ? (
+                                                                            <div className="space-y-1">
+                                                                                {sun1Groups.map((group, idx) => (
+                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <p className="text-gray-400 text-xs">空きなし</p>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* 2週目 */}
+                                                            <div className="mb-4">
+                                                                <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">2週目</h4>
+                                                                <div className="grid grid-cols-2 gap-4">
+                                                                    <div>
+                                                                        <h5 className="font-bold text-blue-700 mb-2 flex items-center gap-1 text-sm">
+                                                                            <LucideIcon name="calendar" size={14} />
+                                                                            {formatDate(saturday2)}
+                                                                        </h5>
+                                                                        {sat2Groups.length > 0 ? (
+                                                                            <div className="space-y-1">
+                                                                                {sat2Groups.map((group, idx) => (
+                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <p className="text-gray-400 text-xs">空きなし</p>
+                                                                        )}
+                                                                    </div>
+                                                                    <div>
+                                                                        <h5 className="font-bold text-orange-700 mb-2 flex items-center gap-1 text-sm">
+                                                                            <LucideIcon name="calendar" size={14} />
+                                                                            {formatDate(sunday2)}
+                                                                        </h5>
+                                                                        {sun2Groups.length > 0 ? (
+                                                                            <div className="space-y-1">
+                                                                                {sun2Groups.map((group, idx) => (
+                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <p className="text-gray-400 text-xs">空きなし</p>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* 3週目 */}
+                                                            <div className="mb-3">
+                                                                <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">3週目</h4>
+                                                                <div className="grid grid-cols-2 gap-4">
+                                                                    <div>
+                                                                        <h5 className="font-bold text-blue-700 mb-2 flex items-center gap-1 text-sm">
+                                                                            <LucideIcon name="calendar" size={14} />
+                                                                            {formatDate(saturday3)}
+                                                                        </h5>
+                                                                        {sat3Groups.length > 0 ? (
+                                                                            <div className="space-y-1">
+                                                                                {sat3Groups.map((group, idx) => (
+                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <p className="text-gray-400 text-xs">空きなし</p>
+                                                                        )}
+                                                                    </div>
+                                                                    <div>
+                                                                        <h5 className="font-bold text-orange-700 mb-2 flex items-center gap-1 text-sm">
+                                                                            <LucideIcon name="calendar" size={14} />
+                                                                            {formatDate(sunday3)}
+                                                                        </h5>
+                                                                        {sun3Groups.length > 0 ? (
+                                                                            <div className="space-y-1">
+                                                                                {sun3Groups.map((group, idx) => (
+                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <p className="text-gray-400 text-xs">空きなし</p>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); setSelectedMemberId(member.id); setActiveTab('calendar'); }}
+                                                                className="mt-3 w-full py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+                                                            >
+                                                                カレンダーを見る
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                <div className="mt-6 text-center">
+                                    <button
+                                        onClick={fetchAllMembersEvents}
+                                        className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors inline-flex items-center gap-2"
+                                    >
+                                        <LucideIcon name="refresh-cw" size={18} />
+                                        データを更新
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 個別カレンダータブ */}
+                        {activeTab === 'calendar' && (
+                            <div className="bg-white rounded-b-xl shadow-lg flex-1 flex flex-col overflow-hidden">
+                                {selectedMember ? (
+                                    <>
+                                        <div className="p-4 border-b flex items-center justify-between flex-shrink-0">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 bg-teal-600 rounded-full flex items-center justify-center text-white font-bold">
+                                                    {selectedMember.name.charAt(0)}
+                                                </div>
+                                                <div>
+                                                    <h2 className="text-xl font-bold text-gray-800">{selectedMember.name}</h2>
+                                                    <p className="text-sm text-gray-500">
+                                                        {selectedMember.calendarUrl ? 'Googleカレンダー連携済み' : 'カレンダー未設定'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => setIsEditMode(!isEditMode)}
+                                                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                                                        isEditMode ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                    }`}
+                                                >
+                                                    {isEditMode ? '完了' : '編集'}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteMember(selectedMember.id)}
+                                                    className="px-4 py-2 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
+                                                >
+                                                    <LucideIcon name="trash-2" size={18} />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {isEditMode && (
+                                            <div className="p-4 bg-gray-50 border-b space-y-4 flex-shrink-0">
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">メンバー名</label>
+                                                        <input
+                                                            type="text"
+                                                            value={selectedMember.name}
+                                                            onChange={(e) => handleUpdateMember(selectedMember.id, { name: e.target.value })}
+                                                            className="w-full p-2 border border-gray-300 rounded-lg"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">チーム</label>
+                                                        <select
+                                                            value={selectedMember.team || ''}
+                                                            onChange={(e) => handleUpdateMember(selectedMember.id, { team: e.target.value })}
+                                                            className="w-full p-2 border border-gray-300 rounded-lg"
+                                                        >
+                                                            <option value="">チームを選択</option>
+                                                            {teams.filter(t => t !== '全体').map(team => (
+                                                                <option key={team} value={team}>{team}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        GoogleカレンダーID（メールアドレス形式）
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={selectedMember.calendarUrl || ''}
+                                                        onChange={(e) => handleUpdateMember(selectedMember.id, { calendarUrl: e.target.value })}
+                                                        placeholder="例: example@gmail.com"
+                                                        className="w-full p-2 border border-gray-300 rounded-lg"
+                                                    />
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Googleカレンダーの設定 → カレンダーの統合 → 「カレンダーID」をコピー
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="flex-1 p-4 overflow-hidden">
+                                            {selectedMember.calendarUrl ? (
+                                                <iframe
+                                                    src={getEmbedUrl(selectedMember.calendarUrl)}
+                                                    style={{ border: 0 }}
+                                                    width="100%"
+                                                    height="100%"
+                                                    frameBorder="0"
+                                                    scrolling="no"
+                                                    className="rounded-lg"
+                                                ></iframe>
+                                            ) : (
+                                                <div className="h-full flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                                                    <div className="text-center">
+                                                        <LucideIcon name="calendar-x" size={64} className="mx-auto mb-4 text-gray-300" />
+                                                        <p className="text-gray-500 mb-2">カレンダーが設定されていません</p>
+                                                        <p className="text-sm text-gray-400">「編集」からGoogleカレンダーIDを設定してください</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex-1 flex items-center justify-center">
+                                        <div className="text-center">
+                                            <LucideIcon name="calendar" size={64} className="mx-auto mb-4 text-gray-300" />
+                                            <p className="text-gray-500">左のリストからメンバーを選択してください</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* メンバー追加モーダル */}
+                    {showAddModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+                                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                    <LucideIcon name="user-plus" size={24} className="text-teal-600" />
+                                    メンバーを追加
+                                </h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">メンバー名 *</label>
+                                        <input
+                                            type="text"
+                                            value={newMemberName}
+                                            onChange={(e) => setNewMemberName(e.target.value)}
+                                            placeholder="例: 山田太郎"
+                                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">チーム *</label>
+                                        <select
+                                            value={newMemberTeam}
+                                            onChange={(e) => setNewMemberTeam(e.target.value)}
+                                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                        >
+                                            <option value="">チームを選択</option>
+                                            {teams.filter(t => t !== '全体').map(team => (
+                                                <option key={team} value={team}>{team}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">GoogleカレンダーID（後で設定可）</label>
+                                        <input
+                                            type="text"
+                                            value={newCalendarUrl}
+                                            onChange={(e) => setNewCalendarUrl(e.target.value)}
+                                            placeholder="例: example@gmail.com"
+                                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-3 mt-6">
+                                    <button
+                                        onClick={() => {
+                                            setShowAddModal(false);
+                                            setNewMemberName('');
+                                            setNewCalendarUrl('');
+                                            setNewMemberTeam('');
+                                        }}
+                                        className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
+                                    >
+                                        キャンセル
+                                    </button>
+                                    <button
+                                        onClick={handleAddMember}
+                                        disabled={!newMemberName.trim()}
+                                        className="px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        追加
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* チーム管理モーダル */}
+                    {showTeamModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+                                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                    <LucideIcon name="users" size={24} className="text-teal-600" />
+                                    チーム管理
+                                </h3>
+
+                                {/* 既存チームリスト */}
+                                <div className="space-y-2 mb-4 max-h-64 overflow-y-auto">
+                                    {teams.map((team, index) => (
+                                        <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                                            {editingTeamIndex === index ? (
+                                                <>
+                                                    <input
+                                                        type="text"
+                                                        value={editingTeamName}
+                                                        onChange={(e) => setEditingTeamName(e.target.value)}
+                                                        className="flex-1 p-2 border border-gray-300 rounded"
+                                                        autoFocus
+                                                    />
+                                                    <button
+                                                        onClick={() => handleUpdateTeam(index)}
+                                                        className="p-2 bg-green-500 text-white rounded hover:bg-green-600"
+                                                    >
+                                                        <LucideIcon name="check" size={16} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setEditingTeamIndex(null); setEditingTeamName(''); }}
+                                                        className="p-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+                                                    >
+                                                        <LucideIcon name="x" size={16} />
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="flex-1 font-medium text-gray-800">
+                                                        {team}
+                                                        {index === 0 && <span className="text-xs text-gray-400 ml-2">(固定)</span>}
+                                                    </span>
+                                                    {index !== 0 && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => { setEditingTeamIndex(index); setEditingTeamName(team); }}
+                                                                className="p-2 text-blue-600 hover:bg-blue-100 rounded"
+                                                            >
+                                                                <LucideIcon name="edit-2" size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteTeam(index)}
+                                                                className="p-2 text-red-600 hover:bg-red-100 rounded"
+                                                            >
+                                                                <LucideIcon name="trash-2" size={16} />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* 新規チーム追加 */}
+                                <div className="flex gap-2 mb-4">
+                                    <input
+                                        type="text"
+                                        value={newTeamName}
+                                        onChange={(e) => setNewTeamName(e.target.value)}
+                                        placeholder="新しいチーム名"
+                                        className="flex-1 p-2 border border-gray-300 rounded-lg"
+                                        onKeyPress={(e) => e.key === 'Enter' && handleAddTeam()}
+                                    />
+                                    <button
+                                        onClick={handleAddTeam}
+                                        disabled={!newTeamName.trim()}
+                                        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                                    >
+                                        <LucideIcon name="plus" size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="flex justify-end">
+                                    <button
+                                        onClick={() => { setShowTeamModal(false); setNewTeamName(''); setEditingTeamIndex(null); }}
+                                        className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
+                                    >
+                                        閉じる
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // ==========================================
         //  6. Root App & Unified App
         // ==========================================
 
-        const HomePage = ({ onNavigate }) => (
-            <div className="h-full overflow-y-auto bg-gradient-to-br from-slate-50 to-blue-50 p-8 flex items-center justify-center">
-              <div className="max-w-6xl w-full">
-                <h1 className="text-4xl font-bold text-center text-slate-800 mb-12">G-house | 営業サイト</h1>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
-                    {[
-                        { id: 'dashboard', title: '営業ダッシュボード', icon: <LucideIcon name="bar-chart-2" className="text-purple-600" size={32}/>, desc: '契約ランキング・チーム見込み（自動連携）' },
-                        { id: 'sales', title: '営業育成管理', icon: <LucideIcon name="users" className="text-blue-600" size={32}/>, desc: 'スタッフのスキル習得状況、AIロープレ支援' },
-                        { id: 'flow', title: '営業作業フロー', icon: <LucideIcon name="file-text" className="text-green-600" size={32}/>, desc: '契約までの標準工程とマニュアル管理' },
-                        { id: 'bank', title: '各種銀行', icon: <LucideIcon name="dollar-sign" className="text-yellow-600" size={32}/>, desc: '提携金融機関の金利・手数料・必要書類DB' },
-                        { id: 'debut', title: 'デビュー研修一覧', icon: <LucideIcon name="graduation-cap" className="text-indigo-600" size={32}/>, desc: '新人営業マン向けの標準研修カリキュラム' },
-                        { id: 'stockcon', title: 'ストコン情報', icon: <LucideIcon name="building" className="text-orange-600" size={32}/>, desc: '会社別の資金計画書・プラン情報管理' },
-                    ].map(card => (
-                        <div key={card.id} onClick={() => onNavigate(card.id)} className="bg-white p-6 rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer border-t-4 border-blue-500 transform hover:-translate-y-1 flex flex-col h-full">
-                            <div className="bg-slate-50 w-14 h-14 rounded-full flex items-center justify-center mb-4">{card.icon}</div>
-                            <h2 className="text-lg font-bold text-slate-800 mb-2">{card.title}</h2>
-                            <p className="text-gray-500 mb-4 flex-grow text-sm">{card.desc}</p>
-                            <div className="flex items-center text-blue-600 font-bold mt-auto text-sm">開く <LucideIcon name="chevron-down" className="ml-1 -rotate-90" size={16}/></div>
+        const HomePage = ({ onNavigate }) => {
+            const menuItems = [
+                { id: 'dashboard', title: '営業ダッシュボード', icon: 'bar-chart-2', color: 'bg-purple-500', desc: '契約ランキング・チーム見込み（自動連携）' },
+                { id: 'sales', title: '営業育成管理', icon: 'users', color: 'bg-blue-500', desc: 'スタッフのスキル習得状況、AIロープレ支援' },
+                { id: 'flow', title: '営業作業フロー', icon: 'clipboard-list', color: 'bg-emerald-500', desc: '契約までの標準工程とマニュアル管理' },
+                { id: 'schedule', title: '担当営業スケジュール', icon: 'calendar-days', color: 'bg-teal-500', desc: '各担当者のGoogleカレンダー連携・空き時間確認' },
+                { id: 'bank', title: '各種銀行', icon: 'landmark', color: 'bg-amber-500', desc: '提携金融機関の金利・手数料・必要書類DB' },
+                { id: 'debut', title: 'デビュー研修一覧', icon: 'graduation-cap', color: 'bg-indigo-500', desc: '新人営業マン向けの標準研修カリキュラム' },
+                { id: 'stockcon', title: 'ストコン情報', icon: 'building-2', color: 'bg-rose-500', desc: '会社別の資金計画書・プラン情報管理' },
+            ];
+
+            return (
+                <div className="h-full overflow-y-auto bg-gray-50 p-6 md:p-10">
+                    <div className="max-w-2xl mx-auto">
+                        {/* ヘッダー */}
+                        <div className="text-center mb-10">
+                            <h1 className="text-3xl font-bold text-gray-800 mb-2">G-house</h1>
+                            <p className="text-gray-500">営業支援システム</p>
                         </div>
-                    ))}
+
+                        {/* メニューリスト */}
+                        <div className="space-y-3">
+                            {menuItems.map(item => (
+                                <div
+                                    key={item.id}
+                                    onClick={() => onNavigate(item.id)}
+                                    className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer border border-gray-100 hover:border-gray-200 group"
+                                >
+                                    <div className="flex items-center p-4">
+                                        <div className={`${item.color} w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0`}>
+                                            <LucideIcon name={item.icon} className="text-white" size={24}/>
+                                        </div>
+                                        <div className="ml-4 flex-1 min-w-0">
+                                            <h2 className="text-base font-bold text-gray-800">{item.title}</h2>
+                                            <p className="text-gray-500 text-sm mt-0.5">{item.desc}</p>
+                                        </div>
+                                        <LucideIcon name="chevron-right" className="text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0 ml-2" size={20}/>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
-              </div>
-            </div>
-        );
+            );
+        };
 
         const UnifiedApp = () => {
           const [currentView, setCurrentView] = useState('home');
@@ -4431,9 +5532,9 @@
                   <div className="flex items-center h-16">
                     <div className="text-xl font-bold text-gray-800 mr-8">G-house | 営業サイト</div>
                     <div className="flex items-center space-x-2">
-                       {['home', 'dashboard', 'sales', 'flow', 'bank', 'debut', 'stockcon'].map(view => (
+                       {['home', 'dashboard', 'sales', 'flow', 'bank', 'debut', 'stockcon', 'schedule'].map(view => (
                            <button key={view} onClick={() => setCurrentView(view)} className={`px-3 py-2 rounded-md font-medium transition-colors text-sm ${currentView === view ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-                             {view === 'home' ? 'ホーム' : view === 'dashboard' ? 'ダッシュボード' : view === 'sales' ? '営業育成' : view === 'flow' ? '営業フロー' : view === 'bank' ? '各種銀行' : view === 'debut' ? 'デビュー研修' : 'ストコン情報'}
+                             {view === 'home' ? 'ホーム' : view === 'dashboard' ? 'ダッシュボード' : view === 'sales' ? '営業育成' : view === 'flow' ? '営業フロー' : view === 'bank' ? '各種銀行' : view === 'debut' ? 'デビュー研修' : view === 'stockcon' ? 'ストコン情報' : 'スケジュール'}
                            </button>
                        ))}
                     </div>
@@ -4450,6 +5551,7 @@
                     {currentView === 'bank' && <BankManagementApp />}
                     {currentView === 'debut' && <DebutTrainingApp />}
                     {currentView === 'stockcon' && <StockConInfoApp />}
+                    {currentView === 'schedule' && <ScheduleApp />}
                 </ErrorBoundary>
               </div>
             </div>
