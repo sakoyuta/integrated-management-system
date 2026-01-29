@@ -4224,26 +4224,80 @@
                                     <LucideIcon name="trophy" size={20}/> 個人契約ランキング
                                 </div>
                                 <div className="p-4 max-h-[400px] overflow-y-auto">
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-gray-50 sticky top-0">
-                                            <tr>
-                                                <th className="text-left p-2 font-semibold">順位</th>
-                                                <th className="text-left p-2 font-semibold">氏名</th>
-                                                <th className="text-center p-2 font-semibold bg-blue-50">スコア</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {ranking.filter(p => p.name !== '合計' && p.name).map((person, idx) => (
-                                                <tr key={idx} className={`border-b hover:bg-gray-50 ${idx < 3 ? 'bg-yellow-50' : ''}`}>
-                                                    <td className="p-2">
-                                                        {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
-                                                    </td>
-                                                    <td className="p-2 font-medium">{person.name}</td>
-                                                    <td className="text-center p-2 font-bold bg-blue-50">{person.score || 0}</td>
-                                                </tr>
+                                    {/* トップ3の強調表示 */}
+                                    {ranking.filter(p => p.name !== '合計' && p.name).length > 0 && (
+                                        <div className="mb-6 space-y-3">
+                                            {ranking.filter(p => p.name !== '合計' && p.name).slice(0, 3).map((person, idx) => (
+                                                <div key={idx} className={`rounded-xl p-4 ${
+                                                    idx === 0
+                                                        ? 'bg-gradient-to-r from-yellow-400 via-yellow-300 to-yellow-400 shadow-lg border-2 border-yellow-500'
+                                                        : idx === 1
+                                                        ? 'bg-gradient-to-r from-gray-300 via-gray-200 to-gray-300 shadow-md border-2 border-gray-400'
+                                                        : 'bg-gradient-to-r from-orange-300 via-orange-200 to-orange-300 shadow border-2 border-orange-400'
+                                                }`}>
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl font-bold ${
+                                                                idx === 0
+                                                                    ? 'bg-yellow-500 text-white shadow-md'
+                                                                    : idx === 1
+                                                                    ? 'bg-gray-400 text-white shadow-md'
+                                                                    : 'bg-orange-400 text-white shadow-md'
+                                                            }`}>
+                                                                {idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'}
+                                                            </div>
+                                                            <div>
+                                                                <div className={`font-bold ${
+                                                                    idx === 0 ? 'text-xl text-yellow-800' : idx === 1 ? 'text-lg text-gray-700' : 'text-lg text-orange-800'
+                                                                }`}>
+                                                                    {person.name}
+                                                                </div>
+                                                                <div className={`text-sm ${
+                                                                    idx === 0 ? 'text-yellow-700' : idx === 1 ? 'text-gray-600' : 'text-orange-700'
+                                                                }`}>
+                                                                    {idx + 1}位
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className={`text-right`}>
+                                                            <div className={`font-bold ${
+                                                                idx === 0 ? 'text-3xl text-yellow-800' : idx === 1 ? 'text-2xl text-gray-700' : 'text-2xl text-orange-800'
+                                                            }`}>
+                                                                {person.score || 0}
+                                                            </div>
+                                                            <div className={`text-xs ${
+                                                                idx === 0 ? 'text-yellow-700' : idx === 1 ? 'text-gray-600' : 'text-orange-700'
+                                                            }`}>
+                                                                棟
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             ))}
-                                        </tbody>
-                                    </table>
+                                        </div>
+                                    )}
+
+                                    {/* 4位以降のテーブル */}
+                                    {ranking.filter(p => p.name !== '合計' && p.name).length > 3 && (
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="text-left p-2 font-semibold">順位</th>
+                                                    <th className="text-left p-2 font-semibold">氏名</th>
+                                                    <th className="text-center p-2 font-semibold bg-blue-50">スコア</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {ranking.filter(p => p.name !== '合計' && p.name).slice(3).map((person, idx) => (
+                                                    <tr key={idx} className="border-b hover:bg-gray-50">
+                                                        <td className="p-2 text-gray-600">{idx + 4}位</td>
+                                                        <td className="p-2 font-medium">{person.name}</td>
+                                                        <td className="text-center p-2 font-bold bg-blue-50">{person.score || 0}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    )}
                                     {ranking.length === 0 && (
                                         <p className="text-center text-gray-400 py-8">データがありません</p>
                                     )}
