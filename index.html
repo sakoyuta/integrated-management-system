@@ -4415,6 +4415,8 @@
             const [newCalendarUrl, setNewCalendarUrl] = useState('');
             const [newMemberTeam, setNewMemberTeam] = useState('');
             const [activeTab, setActiveTab] = useState('availability'); // 'availability' or 'calendar'
+            const [calendarViewMode, setCalendarViewMode] = useState('week'); // 'day', 'week', 'month'
+            const [calendarDate, setCalendarDate] = useState(new Date());
             const [eventsData, setEventsData] = useState({});
             const [loadingEvents, setLoadingEvents] = useState(false);
             const [selectedWeekOffset, setSelectedWeekOffset] = useState(0);
@@ -4577,22 +4579,25 @@
                 }
             };
 
-            // 全メンバーの予定を取得（3週間分）
+            // 全メンバーの予定を取得（2ヶ月分）
             const fetchAllMembersEvents = async () => {
                 if (!scheduleData.members?.length) return;
 
                 setLoadingEvents(true);
                 const newEventsData = {};
 
-                // 3週間目の日曜日までを取得範囲に設定
-                const endOfSunday3 = new Date(sunday3);
-                endOfSunday3.setHours(23, 59, 59, 999);
+                // 今日から2ヶ月先までを取得範囲に設定
+                const startDate = new Date();
+                startDate.setHours(0, 0, 0, 0);
+                const endDate = new Date();
+                endDate.setMonth(endDate.getMonth() + 2);
+                endDate.setHours(23, 59, 59, 999);
 
                 for (const member of scheduleData.members) {
                     if (member.calendarUrl) {
                         const calendarId = extractCalendarId(member.calendarUrl);
                         if (calendarId) {
-                            const events = await fetchCalendarEvents(calendarId, saturday1, endOfSunday3);
+                            const events = await fetchCalendarEvents(calendarId, startDate, endDate);
                             newEventsData[member.id] = events;
                         }
                     }
@@ -4632,20 +4637,19 @@
                     const slotEnd = new Date(date);
                     slotEnd.setHours(hour + 1, 0, 0, 0);
 
-                    // この時間帯に予定があるかチェック
-                    const isBusy = events.some(event => {
-                        const eventTitle = event.summary || '';
+                    // この時間帯の予定を取得
+                    const busyEvents = [];
+                    events.forEach(event => {
+                        const eventTitle = event.summary || '(タイトルなし)';
                         const calendarName = event.organizer?.displayName || '';
 
-                        // 「休み」等を含む予定は必ず忙しいとして扱う
-                        if (BUSY_KEYWORDS.some(keyword => eventTitle.includes(keyword))) {
-                            // この予定は忙しいとして判定を続行
-                        }
                         // 「車」を含むカレンダーまたは予定タイトルは除外（空きとして扱う）
-                        else if (IGNORE_KEYWORDS.some(keyword =>
+                        // ただし「休み」等を含む予定は必ず忙しいとして扱う
+                        const isBusyKeyword = BUSY_KEYWORDS.some(keyword => eventTitle.includes(keyword));
+                        if (!isBusyKeyword && IGNORE_KEYWORDS.some(keyword =>
                             calendarName.includes(keyword) || eventTitle.includes(keyword)
                         )) {
-                            return false; // この予定は無視
+                            return; // この予定は無視
                         }
 
                         const eventStart = new Date(event.start.dateTime || event.start.date);
@@ -4654,14 +4658,25 @@
                         // 終日イベントの場合
                         if (event.start.date && !event.start.dateTime) {
                             const eventDate = new Date(event.start.date);
-                            return eventDate.toDateString() === date.toDateString();
+                            if (eventDate.toDateString() === date.toDateString()) {
+                                busyEvents.push({ title: eventTitle, isAllDay: true });
+                            }
+                            return;
                         }
 
                         // 時間指定イベントの場合、重なりをチェック
-                        return eventStart < slotEnd && eventEnd > slotStart;
+                        if (eventStart < slotEnd && eventEnd > slotStart) {
+                            const startHour = eventStart.getHours();
+                            const startMin = eventStart.getMinutes();
+                            const endHour = eventEnd.getHours();
+                            const endMin = eventEnd.getMinutes();
+                            const timeStr = `${startHour}:${startMin.toString().padStart(2, '0')}-${endHour}:${endMin.toString().padStart(2, '0')}`;
+                            busyEvents.push({ title: eventTitle, time: timeStr, isAllDay: false });
+                        }
                     });
 
-                    slots.push({ hour, isBusy });
+                    const isBusy = busyEvents.length > 0;
+                    slots.push({ hour, isBusy, events: busyEvents });
                 }
 
                 return slots;
@@ -4791,34 +4806,44 @@
                                     <p className="text-sm">メンバーがいません</p>
                                 </div>
                             ) : (
-                                scheduleData.members?.map(member => (
-                                    <div
-                                        key={member.id}
-                                        onClick={() => { setSelectedMemberId(member.id); setActiveTab('calendar'); }}
-                                        className={`p-3 rounded-lg cursor-pointer mb-2 transition-all ${
-                                            selectedMemberId === member.id && activeTab === 'calendar'
-                                                ? 'bg-teal-100 border-2 border-teal-500'
-                                                : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
-                                        }`}
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 bg-teal-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                                                    {member.name.charAt(0)}
+                                (() => {
+                                    const sidebarTeamColors = {
+                                        '京都': 'bg-orange-500',
+                                        '奈良': 'bg-blue-500',
+                                        '本社': 'bg-emerald-500',
+                                        '豊中': 'bg-yellow-500',
+                                    };
+                                    const getSidebarTeamColor = (team) => sidebarTeamColors[team] || 'bg-gray-500';
+
+                                    return scheduleData.members?.map(member => (
+                                        <div
+                                            key={member.id}
+                                            onClick={() => { setSelectedMemberId(member.id); setActiveTab('calendar'); }}
+                                            className={`p-3 rounded-lg cursor-pointer mb-2 transition-all ${
+                                                selectedMemberId === member.id && activeTab === 'calendar'
+                                                    ? 'bg-teal-100 border-2 border-teal-500'
+                                                    : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${member.team ? getSidebarTeamColor(member.team) : 'bg-gray-500'}`}>
+                                                        {member.name.charAt(0)}
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-medium text-gray-800">{member.name}</div>
+                                                        {member.team && (
+                                                            <div className="text-xs text-gray-500">{member.team}</div>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <div className="font-medium text-gray-800">{member.name}</div>
-                                                    {member.team && (
-                                                        <div className="text-xs text-gray-500">{member.team}</div>
-                                                    )}
-                                                </div>
+                                                {member.calendarUrl && (
+                                                    <LucideIcon name="check-circle" size={16} className="text-green-500" />
+                                                )}
                                             </div>
-                                            {member.calendarUrl && (
-                                                <LucideIcon name="check-circle" size={16} className="text-green-500" />
-                                            )}
                                         </div>
-                                    </div>
-                                ))
+                                    ));
+                                })()
                             )}
                         </div>
                     </div>
@@ -4928,7 +4953,17 @@
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                        {filteredMembers?.filter(m => m.calendarUrl).map(member => {
+                                        {(() => {
+                                            // チームごとの色を定義
+                                            const teamColors = {
+                                                '京都': 'bg-orange-500',
+                                                '奈良': 'bg-blue-500',
+                                                '本社': 'bg-emerald-500',
+                                                '豊中': 'bg-yellow-500',
+                                            };
+                                            const getTeamColor = (team) => teamColors[team] || 'bg-gray-500';
+
+                                            return filteredMembers?.filter(m => m.calendarUrl).map(member => {
                                             // 1週目
                                             const sat1Avail = calculateAvailability(member.id, saturday1);
                                             const sun1Avail = calculateAvailability(member.id, sunday1);
@@ -4996,7 +5031,7 @@
                                                         <div className="flex items-center justify-between">
                                                             <div className="flex items-center gap-3">
                                                                 <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg ${
-                                                                    totalFree > 0 ? 'bg-green-500' : 'bg-gray-400'
+                                                                    member.team ? getTeamColor(member.team) : (totalFree > 0 ? 'bg-teal-500' : 'bg-gray-400')
                                                                 }`}>
                                                                     {member.name.charAt(0)}
                                                                 </div>
@@ -5043,21 +5078,19 @@
                                                         </div>
                                                     </div>
 
-                                                    {/* 展開時の詳細（3週間分） */}
+                                                    {/* 展開時の詳細（3週間分）- 空き時間のみ表示 */}
                                                     {isExpanded && (
                                                         <div className="border-t bg-gray-50 p-4">
-                                                            {/* 1週目 */}
-                                                            <div className="mb-4">
-                                                                <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">1週目</h4>
-                                                                <div className="grid grid-cols-2 gap-4">
+                                                            {(() => {
+                                                                const DaySchedule = ({ date, freeGroups, colorClass }) => (
                                                                     <div>
-                                                                        <h5 className="font-bold text-blue-700 mb-2 flex items-center gap-1 text-sm">
+                                                                        <h5 className={`font-bold ${colorClass} mb-2 flex items-center gap-1 text-sm`}>
                                                                             <LucideIcon name="calendar" size={14} />
-                                                                            {formatDate(saturday1)}
+                                                                            {formatDate(date)}
                                                                         </h5>
-                                                                        {sat1Groups.length > 0 ? (
+                                                                        {freeGroups.length > 0 ? (
                                                                             <div className="space-y-1">
-                                                                                {sat1Groups.map((group, idx) => (
+                                                                                {freeGroups.map((group, idx) => (
                                                                                     <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
                                                                                         {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
                                                                                     </div>
@@ -5067,107 +5100,36 @@
                                                                             <p className="text-gray-400 text-xs">空きなし</p>
                                                                         )}
                                                                     </div>
-                                                                    <div>
-                                                                        <h5 className="font-bold text-orange-700 mb-2 flex items-center gap-1 text-sm">
-                                                                            <LucideIcon name="calendar" size={14} />
-                                                                            {formatDate(sunday1)}
-                                                                        </h5>
-                                                                        {sun1Groups.length > 0 ? (
-                                                                            <div className="space-y-1">
-                                                                                {sun1Groups.map((group, idx) => (
-                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
-                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
-                                                                                    </div>
-                                                                                ))}
+                                                                );
+                                                                return (
+                                                                    <>
+                                                                        {/* 1週目 */}
+                                                                        <div className="mb-4">
+                                                                            <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">1週目</h4>
+                                                                            <div className="grid grid-cols-2 gap-4">
+                                                                                <DaySchedule date={saturday1} freeGroups={sat1Groups} colorClass="text-blue-700" />
+                                                                                <DaySchedule date={sunday1} freeGroups={sun1Groups} colorClass="text-orange-700" />
                                                                             </div>
-                                                                        ) : (
-                                                                            <p className="text-gray-400 text-xs">空きなし</p>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* 2週目 */}
-                                                            <div className="mb-4">
-                                                                <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">2週目</h4>
-                                                                <div className="grid grid-cols-2 gap-4">
-                                                                    <div>
-                                                                        <h5 className="font-bold text-blue-700 mb-2 flex items-center gap-1 text-sm">
-                                                                            <LucideIcon name="calendar" size={14} />
-                                                                            {formatDate(saturday2)}
-                                                                        </h5>
-                                                                        {sat2Groups.length > 0 ? (
-                                                                            <div className="space-y-1">
-                                                                                {sat2Groups.map((group, idx) => (
-                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
-                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
-                                                                                    </div>
-                                                                                ))}
+                                                                        </div>
+                                                                        {/* 2週目 */}
+                                                                        <div className="mb-4">
+                                                                            <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">2週目</h4>
+                                                                            <div className="grid grid-cols-2 gap-4">
+                                                                                <DaySchedule date={saturday2} freeGroups={sat2Groups} colorClass="text-blue-700" />
+                                                                                <DaySchedule date={sunday2} freeGroups={sun2Groups} colorClass="text-orange-700" />
                                                                             </div>
-                                                                        ) : (
-                                                                            <p className="text-gray-400 text-xs">空きなし</p>
-                                                                        )}
-                                                                    </div>
-                                                                    <div>
-                                                                        <h5 className="font-bold text-orange-700 mb-2 flex items-center gap-1 text-sm">
-                                                                            <LucideIcon name="calendar" size={14} />
-                                                                            {formatDate(sunday2)}
-                                                                        </h5>
-                                                                        {sun2Groups.length > 0 ? (
-                                                                            <div className="space-y-1">
-                                                                                {sun2Groups.map((group, idx) => (
-                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
-                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
-                                                                                    </div>
-                                                                                ))}
+                                                                        </div>
+                                                                        {/* 3週目 */}
+                                                                        <div className="mb-3">
+                                                                            <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">3週目</h4>
+                                                                            <div className="grid grid-cols-2 gap-4">
+                                                                                <DaySchedule date={saturday3} freeGroups={sat3Groups} colorClass="text-blue-700" />
+                                                                                <DaySchedule date={sunday3} freeGroups={sun3Groups} colorClass="text-orange-700" />
                                                                             </div>
-                                                                        ) : (
-                                                                            <p className="text-gray-400 text-xs">空きなし</p>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* 3週目 */}
-                                                            <div className="mb-3">
-                                                                <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">3週目</h4>
-                                                                <div className="grid grid-cols-2 gap-4">
-                                                                    <div>
-                                                                        <h5 className="font-bold text-blue-700 mb-2 flex items-center gap-1 text-sm">
-                                                                            <LucideIcon name="calendar" size={14} />
-                                                                            {formatDate(saturday3)}
-                                                                        </h5>
-                                                                        {sat3Groups.length > 0 ? (
-                                                                            <div className="space-y-1">
-                                                                                {sat3Groups.map((group, idx) => (
-                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
-                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
-                                                                                    </div>
-                                                                                ))}
-                                                                            </div>
-                                                                        ) : (
-                                                                            <p className="text-gray-400 text-xs">空きなし</p>
-                                                                        )}
-                                                                    </div>
-                                                                    <div>
-                                                                        <h5 className="font-bold text-orange-700 mb-2 flex items-center gap-1 text-sm">
-                                                                            <LucideIcon name="calendar" size={14} />
-                                                                            {formatDate(sunday3)}
-                                                                        </h5>
-                                                                        {sun3Groups.length > 0 ? (
-                                                                            <div className="space-y-1">
-                                                                                {sun3Groups.map((group, idx) => (
-                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
-                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
-                                                                                    </div>
-                                                                                ))}
-                                                                            </div>
-                                                                        ) : (
-                                                                            <p className="text-gray-400 text-xs">空きなし</p>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
+                                                                        </div>
+                                                                    </>
+                                                                );
+                                                            })()}
 
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); setSelectedMemberId(member.id); setActiveTab('calendar'); }}
@@ -5179,7 +5141,8 @@
                                                     )}
                                                 </div>
                                             );
-                                        })}
+                                        });
+                                        })()}
                                     </div>
                                 )}
 
@@ -5202,7 +5165,13 @@
                                     <>
                                         <div className="p-4 border-b flex items-center justify-between flex-shrink-0">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 bg-teal-600 rounded-full flex items-center justify-center text-white font-bold">
+                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold ${
+                                                    selectedMember.team === '京都' ? 'bg-orange-500' :
+                                                    selectedMember.team === '奈良' ? 'bg-blue-500' :
+                                                    selectedMember.team === '本社' ? 'bg-emerald-500' :
+                                                    selectedMember.team === '豊中' ? 'bg-yellow-500' :
+                                                    'bg-gray-500'
+                                                }`}>
                                                     {selectedMember.name.charAt(0)}
                                                 </div>
                                                 <div>
@@ -5274,17 +5243,233 @@
                                             </div>
                                         )}
 
-                                        <div className="flex-1 p-4 overflow-hidden">
+                                        <div className="flex-1 flex flex-col overflow-hidden">
                                             {selectedMember.calendarUrl ? (
-                                                <iframe
-                                                    src={getEmbedUrl(selectedMember.calendarUrl)}
-                                                    style={{ border: 0 }}
-                                                    width="100%"
-                                                    height="100%"
-                                                    frameBorder="0"
-                                                    scrolling="no"
-                                                    className="rounded-lg"
-                                                ></iframe>
+                                                (() => {
+                                                    const memberEvents = eventsData[selectedMember.id] || [];
+
+                                                    // 日付ごとにイベントをグループ化
+                                                    const getEventsByDate = (events) => {
+                                                        const eventsByDate = {};
+                                                        events.forEach(event => {
+                                                            const eventTitle = event.summary || '(タイトルなし)';
+                                                            const startDate = new Date(event.start.dateTime || event.start.date);
+                                                            const endDate = new Date(event.end.dateTime || event.end.date);
+                                                            const dateKey = startDate.toDateString();
+
+                                                            if (!eventsByDate[dateKey]) {
+                                                                eventsByDate[dateKey] = [];
+                                                            }
+
+                                                            const isAllDay = !event.start.dateTime;
+                                                            eventsByDate[dateKey].push({
+                                                                title: eventTitle,
+                                                                start: startDate,
+                                                                end: endDate,
+                                                                isAllDay
+                                                            });
+                                                        });
+                                                        return eventsByDate;
+                                                    };
+
+                                                    const eventsByDate = getEventsByDate(memberEvents);
+
+                                                    // 週の開始日を取得
+                                                    const getWeekStart = (date) => {
+                                                        const d = new Date(date);
+                                                        const day = d.getDay();
+                                                        d.setDate(d.getDate() - day);
+                                                        d.setHours(0, 0, 0, 0);
+                                                        return d;
+                                                    };
+
+                                                    // 月の日付配列を取得
+                                                    const getMonthDates = (date) => {
+                                                        const year = date.getFullYear();
+                                                        const month = date.getMonth();
+                                                        const firstDay = new Date(year, month, 1);
+                                                        const lastDay = new Date(year, month + 1, 0);
+                                                        const startDate = new Date(firstDay);
+                                                        startDate.setDate(startDate.getDate() - firstDay.getDay());
+
+                                                        const dates = [];
+                                                        const current = new Date(startDate);
+                                                        while (dates.length < 42) {
+                                                            dates.push(new Date(current));
+                                                            current.setDate(current.getDate() + 1);
+                                                        }
+                                                        return dates;
+                                                    };
+
+                                                    const formatTime = (date) => `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+                                                    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+
+                                                    return (
+                                                        <div className="flex flex-col h-full">
+                                                            {/* 表示切替タブとナビゲーション */}
+                                                            <div className="p-3 border-b bg-gray-50 flex items-center justify-between flex-shrink-0">
+                                                                <div className="flex gap-1">
+                                                                    {['day', 'week', 'month'].map(mode => (
+                                                                        <button
+                                                                            key={mode}
+                                                                            onClick={() => setCalendarViewMode(mode)}
+                                                                            className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                                                                                calendarViewMode === mode ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
+                                                                            }`}
+                                                                        >
+                                                                            {mode === 'day' ? '日' : mode === 'week' ? '週' : '月'}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            const d = new Date(calendarDate);
+                                                                            if (calendarViewMode === 'day') d.setDate(d.getDate() - 1);
+                                                                            else if (calendarViewMode === 'week') d.setDate(d.getDate() - 7);
+                                                                            else d.setMonth(d.getMonth() - 1);
+                                                                            setCalendarDate(d);
+                                                                        }}
+                                                                        className="p-1 rounded hover:bg-gray-200"
+                                                                    >
+                                                                        <LucideIcon name="chevron-left" size={20} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => setCalendarDate(new Date())}
+                                                                        className="px-2 py-1 text-sm bg-white rounded hover:bg-gray-100"
+                                                                    >
+                                                                        今日
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            const d = new Date(calendarDate);
+                                                                            if (calendarViewMode === 'day') d.setDate(d.getDate() + 1);
+                                                                            else if (calendarViewMode === 'week') d.setDate(d.getDate() + 7);
+                                                                            else d.setMonth(d.getMonth() + 1);
+                                                                            setCalendarDate(d);
+                                                                        }}
+                                                                        className="p-1 rounded hover:bg-gray-200"
+                                                                    >
+                                                                        <LucideIcon name="chevron-right" size={20} />
+                                                                    </button>
+                                                                </div>
+                                                                <div className="text-sm font-bold text-gray-700">
+                                                                    {calendarDate.getFullYear()}年{calendarDate.getMonth() + 1}月
+                                                                    {calendarViewMode === 'day' && `${calendarDate.getDate()}日`}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* カレンダー本体 */}
+                                                            <div className="flex-1 overflow-auto p-2">
+                                                                {/* 日表示 */}
+                                                                {calendarViewMode === 'day' && (
+                                                                    <div className="bg-white rounded-lg p-4">
+                                                                        <h3 className="text-lg font-bold text-gray-800 mb-4">
+                                                                            {calendarDate.getMonth() + 1}月{calendarDate.getDate()}日({dayNames[calendarDate.getDay()]})
+                                                                        </h3>
+                                                                        <div className="space-y-1">
+                                                                            {(eventsByDate[calendarDate.toDateString()] || []).length > 0 ? (
+                                                                                (eventsByDate[calendarDate.toDateString()] || []).map((ev, idx) => (
+                                                                                    <div key={idx} className="p-3 bg-blue-50 rounded-lg border-l-4 border-blue-500">
+                                                                                        <div className="font-bold text-gray-800">予定あり</div>
+                                                                                        <div className="text-sm text-gray-500">
+                                                                                            {ev.isAllDay ? '終日' : `${formatTime(ev.start)} - ${formatTime(ev.end)}`}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ))
+                                                                            ) : (
+                                                                                <p className="text-gray-400 text-center py-8">この日の予定はありません</p>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* 週表示 */}
+                                                                {calendarViewMode === 'week' && (
+                                                                    <div className="bg-white rounded-lg">
+                                                                        <div className="grid grid-cols-7 border-b">
+                                                                            {dayNames.map((day, i) => (
+                                                                                <div key={day} className={`p-2 text-center text-sm font-bold ${i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-600'}`}>
+                                                                                    {day}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                        <div className="grid grid-cols-7">
+                                                                            {(() => {
+                                                                                const weekStart = getWeekStart(calendarDate);
+                                                                                return Array.from({ length: 7 }, (_, i) => {
+                                                                                    const d = new Date(weekStart);
+                                                                                    d.setDate(d.getDate() + i);
+                                                                                    const isToday = d.toDateString() === new Date().toDateString();
+                                                                                    const dayEvents = eventsByDate[d.toDateString()] || [];
+                                                                                    return (
+                                                                                        <div key={i} className={`min-h-32 p-2 border-r border-b ${isToday ? 'bg-blue-50' : ''}`}>
+                                                                                            <div className={`text-sm font-bold mb-1 ${isToday ? 'text-blue-600' : ''}`}>
+                                                                                                {d.getDate()}
+                                                                                            </div>
+                                                                                            <div className="space-y-1">
+                                                                                                {dayEvents.slice(0, 3).map((ev, idx) => (
+                                                                                                    <div key={idx} className="text-xs p-1 bg-blue-100 rounded truncate">
+                                                                                                        {ev.isAllDay ? '終日' : `${formatTime(ev.start)}`} 予定あり
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                                {dayEvents.length > 3 && (
+                                                                                                    <div className="text-xs text-gray-500">+{dayEvents.length - 3}件</div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    );
+                                                                                });
+                                                                            })()}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* 月表示 */}
+                                                                {calendarViewMode === 'month' && (
+                                                                    <div className="bg-white rounded-lg">
+                                                                        <div className="grid grid-cols-7 border-b">
+                                                                            {dayNames.map((day, i) => (
+                                                                                <div key={day} className={`p-2 text-center text-sm font-bold ${i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-600'}`}>
+                                                                                    {day}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                        <div className="grid grid-cols-7">
+                                                                            {getMonthDates(calendarDate).map((d, i) => {
+                                                                                const isCurrentMonth = d.getMonth() === calendarDate.getMonth();
+                                                                                const isToday = d.toDateString() === new Date().toDateString();
+                                                                                const dayEvents = eventsByDate[d.toDateString()] || [];
+                                                                                return (
+                                                                                    <div
+                                                                                        key={i}
+                                                                                        className={`min-h-24 p-1 border-r border-b ${!isCurrentMonth ? 'bg-gray-50' : ''} ${isToday ? 'bg-blue-50' : ''}`}
+                                                                                    >
+                                                                                        <div className={`text-xs font-bold mb-1 ${!isCurrentMonth ? 'text-gray-300' : isToday ? 'text-blue-600' : ''}`}>
+                                                                                            {d.getDate()}
+                                                                                        </div>
+                                                                                        {isCurrentMonth && (
+                                                                                            <div className="space-y-0.5">
+                                                                                                {dayEvents.slice(0, 2).map((ev, idx) => (
+                                                                                                    <div key={idx} className="text-xs p-0.5 bg-blue-100 rounded truncate">
+                                                                                                        予定あり
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                                {dayEvents.length > 2 && (
+                                                                                                    <div className="text-xs text-gray-500">+{dayEvents.length - 2}</div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()
                                             ) : (
                                                 <div className="h-full flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
                                                     <div className="text-center">
