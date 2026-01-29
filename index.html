@@ -4470,9 +4470,11 @@
                                                             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((monthIdx) => {
                                                                 const monthData = monthlyData[monthIdx] || {};
                                                                 const isFeb = monthIdx === 2;
+                                                                const targetValue = monthData.target;
+                                                                const displayTarget = targetValue !== undefined && targetValue !== null && targetValue !== '' ? targetValue : '-';
                                                                 return (
                                                                     <td key={monthIdx} className={`text-center p-2 ${isGHouse ? 'text-blue-700 font-semibold' : 'text-gray-600'} ${isFeb ? 'bg-yellow-50' : ''}`}>
-                                                                        {monthData.target || '-'}
+                                                                        {displayTarget}
                                                                     </td>
                                                                 );
                                                             })}
@@ -4486,12 +4488,14 @@
                                                             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((monthIdx) => {
                                                                 const monthData = monthlyData[monthIdx] || {};
                                                                 const isFeb = monthIdx === 2;
-                                                                const actual = monthData.actual || 0;
+                                                                const actualValue = monthData.actual;
+                                                                const actual = actualValue !== undefined && actualValue !== null && actualValue !== '' ? actualValue : null;
                                                                 const target = monthData.target || 0;
-                                                                const achieved = actual >= target && target > 0;
+                                                                const achieved = actual !== null && actual >= target && target > 0;
+                                                                const displayActual = actual !== null ? actual : '-';
                                                                 return (
-                                                                    <td key={monthIdx} className={`text-center p-2 font-bold ${isFeb ? 'bg-yellow-50' : ''} ${achieved ? 'text-green-600' : actual > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-                                                                        {actual || '-'}
+                                                                    <td key={monthIdx} className={`text-center p-2 font-bold ${isFeb ? 'bg-yellow-50' : ''} ${achieved ? 'text-green-600' : actual !== null && actual > 0 ? 'text-blue-600' : actual === 0 ? 'text-gray-600' : 'text-gray-400'}`}>
+                                                                        {displayActual}
                                                                     </td>
                                                                 );
                                                             })}
