@@ -4234,13 +4234,35 @@
                                         // スコアでソートして同率を考慮したランキングを作成
                                         const sorted = [...validRanking].sort((a, b) => (b.score || 0) - (a.score || 0));
                                         const scores = [...new Set(sorted.map(p => p.score || 0))];
+
+                                        // 同率順位を考慮した順位計算
                                         const first = sorted.filter(p => (p.score || 0) === scores[0]);
+                                        const firstRank = 1;
+
+                                        // 2位の順位 = 1 + 1位の人数
+                                        const secondRank = firstRank + first.length;
                                         const second = scores[1] !== undefined ? sorted.filter(p => (p.score || 0) === scores[1]) : [];
+
+                                        // 3位の順位 = 2位の順位 + 2位の人数
+                                        const thirdRank = secondRank + second.length;
                                         const third = scores[2] !== undefined ? sorted.filter(p => (p.score || 0) === scores[2]) : [];
+
+                                        // 4位以降
+                                        const restStartRank = thirdRank + third.length;
                                         const rest = sorted.filter(p => {
                                             const score = p.score || 0;
                                             return score !== scores[0] && score !== scores[1] && score !== scores[2];
                                         });
+
+                                        // 各人の順位を計算する関数
+                                        const getRank = (score) => {
+                                            let rank = 1;
+                                            for (let i = 0; i < scores.length; i++) {
+                                                if (scores[i] === score) return rank;
+                                                rank += sorted.filter(p => (p.score || 0) === scores[i]).length;
+                                            }
+                                            return rank;
+                                        };
 
                                         return (
                                             <>
@@ -4267,6 +4289,7 @@
                                                             {second.length > 0 && (
                                                                 <div className="bg-gradient-to-b from-gray-200 via-gray-300 to-gray-400 rounded-xl p-3 shadow-md border-2 border-gray-500 min-w-[140px] text-center">
                                                                     <div className="text-3xl mb-1">🥈</div>
+                                                                    <div className="text-xs text-gray-500 mb-1">{secondRank}位</div>
                                                                     <div className="text-2xl font-black text-gray-600">{scores[1] || 0}</div>
                                                                     <div className="text-xs text-gray-500 mb-2">棟</div>
                                                                     <div className="border-t border-gray-500 pt-2">
@@ -4281,6 +4304,7 @@
                                                             {third.length > 0 && (
                                                                 <div className="bg-gradient-to-b from-orange-200 via-orange-300 to-orange-400 rounded-xl p-3 shadow border-2 border-orange-500 min-w-[140px] text-center">
                                                                     <div className="text-3xl mb-1">🥉</div>
+                                                                    <div className="text-xs text-orange-600 mb-1">{thirdRank}位</div>
                                                                     <div className="text-2xl font-black text-orange-700">{scores[2] || 0}</div>
                                                                     <div className="text-xs text-orange-600 mb-2">棟</div>
                                                                     <div className="border-t border-orange-500 pt-2">
@@ -4306,7 +4330,7 @@
                                                         </thead>
                                                         <tbody>
                                                             {rest.map((person, idx) => {
-                                                                const rank = scores.indexOf(person.score || 0) + 1;
+                                                                const rank = getRank(person.score || 0);
                                                                 return (
                                                                     <tr key={idx} className="border-b hover:bg-gray-50">
                                                                         <td className="p-2 text-gray-600">{rank}位</td>
