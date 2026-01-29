@@ -4467,12 +4467,12 @@
                 }
             };
 
-            // フィルタリングされたメンバー
+            // フィルタリングされたメンバー（あいうえお順でソート）
             const filteredMembers = useMemo(() => {
-                if (selectedTeamFilter === '全体') {
-                    return scheduleData.members || [];
-                }
-                return (scheduleData.members || []).filter(m => m.team === selectedTeamFilter);
+                const members = selectedTeamFilter === '全体'
+                    ? (scheduleData.members || [])
+                    : (scheduleData.members || []).filter(m => m.team === selectedTeamFilter);
+                return [...members].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ja'));
             }, [scheduleData.members, selectedTeamFilter]);
 
             const selectedMember = scheduleData.members?.find(m => m.id === selectedMemberId);
@@ -4815,7 +4815,7 @@
                                     };
                                     const getSidebarTeamColor = (team) => sidebarTeamColors[team] || 'bg-gray-500';
 
-                                    return scheduleData.members?.map(member => (
+                                    return [...(scheduleData.members || [])].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ja')).map(member => (
                                         <div
                                             key={member.id}
                                             onClick={() => { setSelectedMemberId(member.id); setActiveTab('calendar'); }}
