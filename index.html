@@ -4224,7 +4224,7 @@
                                 <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 font-bold flex items-center gap-2">
                                     <LucideIcon name="trophy" size={20}/> 個人契約ランキング
                                 </div>
-                                <div className="p-4 max-h-[500px] overflow-y-auto">
+                                <div className="p-4">
                                     {(() => {
                                         const validRanking = ranking.filter(p => p.name !== '合計' && p.name);
                                         if (validRanking.length === 0) {
