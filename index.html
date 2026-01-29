@@ -4032,7 +4032,7 @@
         //  5.6. Sales Data Dashboard (スプレッドシート連携)
         // ==========================================
 
-        const SPREADSHEET_API_URL = 'https://script.google.com/macros/s/AKfycbwlxTdUSBQkDjS7mJFG4JqnyWeKzHeI1mqblKE9uPvcSepjLEa69AmQgN9Tw86rIU11/exec';
+        const SPREADSHEET_API_URL = 'https://script.google.com/macros/s/AKfycbwMaBAuZsda-mNLLBXLwoVHQ0bbtphzZ7axwstD0ZmItVc0NN3iYD0OIr_sgb4_NMbG/exec';
 
         const SalesDataDashboard = () => {
             const [data, setData] = useState(null);
@@ -4154,6 +4154,7 @@
 
             const ranking = Array.isArray(data?.personalRanking) ? data.personalRanking : [];
             const teams = Array.isArray(data?.teamForecast) ? data.teamForecast : [];
+            const teamProgress = Array.isArray(data?.teamProgress) ? data.teamProgress : [];
 
             // teamCustomersがオブジェクトであることを確認
             const rawTeamCustomers = data?.teamCustomers;
@@ -4323,39 +4324,148 @@
                                 </div>
                             </div>
 
-                            {/* チーム別見込み */}
+                            {/* チーム別年間進捗 */}
                             <div className="bg-white rounded-xl shadow-md overflow-hidden">
                                 <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-4 font-bold flex items-center gap-2">
-                                    <LucideIcon name="users" size={20}/> チーム別見込み
+                                    <LucideIcon name="trending-up" size={20}/> 年間契約進捗
                                 </div>
-                                <div className="p-4">
-                                    {teams.map((team, idx) => {
-                                        const progress = team.target > 0 ? Math.min((team.current / team.target) * 100, 100) : 0;
-                                        return (
-                                            <div key={idx} className="mb-6 last:mb-0">
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <span className="font-medium text-gray-700">{team.name}</span>
-                                                    <span className="text-sm">
-                                                        <span className="font-bold text-blue-600">{team.current}</span>
-                                                        <span className="text-gray-400"> / {team.target}</span>
-                                                    </span>
-                                                </div>
-                                                <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                                                    <div
-                                                        className={`h-4 rounded-full transition-all duration-500 ${progress >= 100 ? 'bg-green-500' : progress >= 70 ? 'bg-blue-500' : progress >= 40 ? 'bg-yellow-500' : 'bg-red-400'}`}
-                                                        style={{ width: `${progress}%` }}
-                                                    ></div>
-                                                </div>
-                                                <div className="text-right text-xs text-gray-500 mt-1">{progress.toFixed(0)}%達成</div>
-                                            </div>
-                                        );
-                                    })}
-                                    {teams.length === 0 && (
+                                <div className="p-4 max-h-[500px] overflow-y-auto">
+                                    {teamProgress.length > 0 ? (
+                                        <div className="space-y-4">
+                                            {teamProgress.map((team, idx) => {
+                                                const isGHouse = team.teamName === 'Gハウス全体';
+                                                const progressRate = team.progressRate || 0;
+                                                return (
+                                                    <div key={idx} className={`p-3 rounded-lg ${isGHouse ? 'bg-blue-50 border-2 border-blue-300' : 'bg-gray-50'}`}>
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <span className={`font-bold ${isGHouse ? 'text-blue-700 text-lg' : 'text-gray-700'}`}>
+                                                                {team.teamName}
+                                                            </span>
+                                                            <span className="text-sm">
+                                                                <span className={`font-bold ${isGHouse ? 'text-blue-600 text-lg' : 'text-green-600'}`}>{team.totalActual}</span>
+                                                                <span className="text-gray-400"> / {team.totalTarget}棟</span>
+                                                                <span className={`ml-2 font-bold ${progressRate >= 100 ? 'text-green-600' : progressRate >= 50 ? 'text-blue-600' : 'text-orange-500'}`}>
+                                                                    ({progressRate}%)
+                                                                </span>
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                                                            <div
+                                                                className={`h-3 rounded-full transition-all duration-500 ${progressRate >= 100 ? 'bg-green-500' : progressRate >= 70 ? 'bg-blue-500' : progressRate >= 40 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                                                                style={{ width: `${Math.min(progressRate, 100)}%` }}
+                                                            ></div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : teams.length > 0 ? (
+                                        <div className="space-y-4">
+                                            {teams.map((team, idx) => {
+                                                const progress = team.target > 0 ? Math.min((team.current / team.target) * 100, 100) : 0;
+                                                return (
+                                                    <div key={idx} className="mb-4 last:mb-0">
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <span className="font-medium text-gray-700">{team.name}</span>
+                                                            <span className="text-sm">
+                                                                <span className="font-bold text-blue-600">{team.current}</span>
+                                                                <span className="text-gray-400"> / {team.target}</span>
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                                                            <div
+                                                                className={`h-3 rounded-full transition-all duration-500 ${progress >= 100 ? 'bg-green-500' : progress >= 70 ? 'bg-blue-500' : progress >= 40 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                                                                style={{ width: `${progress}%` }}
+                                                            ></div>
+                                                        </div>
+                                                        <div className="text-right text-xs text-gray-500 mt-1">{progress.toFixed(0)}%達成</div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
                                         <p className="text-center text-gray-400 py-8">データがありません</p>
                                     )}
                                 </div>
                             </div>
                         </div>
+
+                        {/* 月別詳細テーブル */}
+                        {teamProgress.length > 0 && (
+                            <div className="bg-white rounded-xl shadow-md overflow-hidden mb-6">
+                                <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-4 font-bold flex items-center gap-2">
+                                    <LucideIcon name="calendar" size={20}/> 月別目標・実績一覧
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="text-left p-3 font-semibold sticky left-0 bg-gray-50 min-w-[120px]">チーム</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">12月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">1月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px] bg-yellow-50">2月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">3月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">4月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">5月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">6月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">7月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">8月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">9月</th>
+                                                <th className="text-center p-2 font-semibold bg-blue-50 min-w-[70px]">計</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {teamProgress.map((team, idx) => {
+                                                const isGHouse = team.teamName === 'Gハウス全体';
+                                                const monthlyData = team.monthlyData || [];
+                                                return (
+                                                    <React.Fragment key={idx}>
+                                                        {/* 目標行 */}
+                                                        <tr className={`border-b ${isGHouse ? 'bg-blue-50' : ''}`}>
+                                                            <td className={`p-2 font-medium sticky left-0 ${isGHouse ? 'bg-blue-50 text-blue-700' : 'bg-white'}`}>
+                                                                {team.teamName}
+                                                                <span className="text-xs text-gray-500 ml-1">目標</span>
+                                                            </td>
+                                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((monthIdx) => {
+                                                                const monthData = monthlyData[monthIdx] || {};
+                                                                const isFeb = monthIdx === 2;
+                                                                return (
+                                                                    <td key={monthIdx} className={`text-center p-2 text-gray-600 ${isFeb ? 'bg-yellow-50' : ''}`}>
+                                                                        {monthData.target || '-'}
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                            <td className="text-center p-2 font-bold bg-blue-50">{team.totalTarget}</td>
+                                                        </tr>
+                                                        {/* 実績行 */}
+                                                        <tr className={`border-b ${isGHouse ? 'bg-blue-100' : 'bg-gray-50'}`}>
+                                                            <td className={`p-2 font-medium sticky left-0 ${isGHouse ? 'bg-blue-100 text-blue-700' : 'bg-gray-50'}`}>
+                                                                <span className="text-xs text-green-600 ml-1">実績</span>
+                                                            </td>
+                                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((monthIdx) => {
+                                                                const monthData = monthlyData[monthIdx] || {};
+                                                                const isFeb = monthIdx === 2;
+                                                                const actual = monthData.actual || 0;
+                                                                const target = monthData.target || 0;
+                                                                const achieved = actual >= target && target > 0;
+                                                                return (
+                                                                    <td key={monthIdx} className={`text-center p-2 font-bold ${isFeb ? 'bg-yellow-50' : ''} ${achieved ? 'text-green-600' : actual > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                                                                        {actual || '-'}
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                            <td className={`text-center p-2 font-bold ${team.totalActual >= team.totalTarget ? 'text-green-600 bg-green-100' : 'text-blue-600 bg-blue-100'}`}>
+                                                                {team.totalActual}
+                                                            </td>
+                                                        </tr>
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
 
                         {/* チーム別顧客情報 */}
                         {teamNames.length > 0 && (
