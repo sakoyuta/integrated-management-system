@@ -1393,13 +1393,31 @@
         //  4. Bank App Components (各種銀行)
         // ==========================================
 
-        const BankEditableRow = ({ label, value, onChange, placeholder, icon, onDelete, fieldKey }) => {
-          return ( <div className="grid grid-cols-3 gap-4 items-start group"> <label className="flex items-center text-sm font-semibold text-gray-700 col-span-1 mt-2"> {icon} {label} </label> <div className="col-span-2 flex gap-2"> <AutoResizeTextarea value={value} onChange={onChange} placeholder={placeholder || "詳細を入力..."} className="min-h-[40px] flex-1" /> {onDelete && <button onClick={() => onDelete(fieldKey)} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-2"><LucideIcon name="trash-2" size={16}/></button>} </div> </div> );
+        const BankEditableRow = ({ label, value, onChange, placeholder, icon, onDelete, fieldKey, onDragStart, onDragOver, onDrop, isDragging }) => {
+          return (
+            <div
+              draggable={true}
+              onDragStart={(e) => onDragStart && onDragStart(e, fieldKey)}
+              onDragOver={(e) => onDragOver && onDragOver(e)}
+              onDrop={(e) => onDrop && onDrop(e, fieldKey)}
+              className={`grid grid-cols-3 gap-4 items-start group p-3 rounded-lg border border-gray-200 bg-white hover:border-blue-300 transition-all cursor-move ${isDragging ? 'opacity-50 border-dashed border-blue-500' : ''}`}
+            >
+              <label className="flex items-center text-sm font-semibold text-gray-700 col-span-1 gap-2">
+                <LucideIcon name="grip-vertical" size={16} className="text-gray-400" />
+                {icon} {label}
+              </label>
+              <div className="col-span-2 flex gap-2">
+                <AutoResizeTextarea value={value} onChange={onChange} placeholder={placeholder || "詳細を入力..."} className="min-h-[40px] flex-1" />
+                {onDelete && <button onClick={() => onDelete(fieldKey)} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-2"><LucideIcon name="trash-2" size={16}/></button>}
+              </div>
+            </div>
+          );
         };
 
         const BankEditor = ({ bank, isEditMode, onUpdateBank, onAddDetailField, onDeleteDetailField }) => {
           const [newFieldName, setNewFieldName] = useState('');
           const [showAddField, setShowAddField] = useState(false);
+          const [draggedField, setDraggedField] = useState(null);
 
           if (!bank) return <div className="flex-1 h-full bg-white rounded-xl shadow-lg border border-gray-200 flex items-center justify-center"> <p className="text-gray-500 text-lg">左のリストから銀行を選択してください</p> </div>;
 
@@ -1426,6 +1444,7 @@
           };
 
           const details = bank.details || {};
+          const fieldOrder = bank.fieldOrder || Object.keys(details);
           const handleDetailChange = (field, value) => { onUpdateBank(bank.id, { ...bank, details: { ...details, [field]: value } }); };
           const handleNameChange = (e) => { onUpdateBank(bank.id, { ...bank, name: e.target.value }); };
           const handleTypeChange = (e) => { onUpdateBank(bank.id, { ...bank, type: e.target.value }); };
@@ -1438,9 +1457,41 @@
               }
           };
 
+          // ドラッグ&ドロップ処理
+          const handleDragStart = (e, fieldKey) => {
+              setDraggedField(fieldKey);
+              e.dataTransfer.effectAllowed = 'move';
+          };
+
+          const handleDragOver = (e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+          };
+
+          const handleDrop = (e, targetFieldKey) => {
+              e.preventDefault();
+              if (!draggedField || draggedField === targetFieldKey) {
+                  setDraggedField(null);
+                  return;
+              }
+
+              const currentOrder = bank.fieldOrder || Object.keys(details).filter(f => f !== 'bankUrl');
+              const newOrder = [...currentOrder];
+              const draggedIndex = newOrder.indexOf(draggedField);
+              const targetIndex = newOrder.indexOf(targetFieldKey);
+
+              if (draggedIndex !== -1 && targetIndex !== -1) {
+                  newOrder.splice(draggedIndex, 1);
+                  newOrder.splice(targetIndex, 0, draggedField);
+                  onUpdateBank(bank.id, { ...bank, fieldOrder: newOrder });
+              }
+              setDraggedField(null);
+          };
+
           const detailFields = Object.keys(details);
           const urlField = 'bankUrl';
-          const otherFields = detailFields.filter(f => f !== urlField);
+          // fieldOrderがあればその順序を使用、なければdetailFieldsの順序
+          const otherFields = (bank.fieldOrder || detailFields.filter(f => f !== urlField)).filter(f => f !== urlField && details.hasOwnProperty(f));
 
           if (isEditMode) {
               // Edit Mode
@@ -1470,18 +1521,24 @@
                           />
                       </div>
 
-                      {/* Other Fields */}
-                      {otherFields.map(fieldKey => (
-                          <BankEditableRow
-                              key={fieldKey}
-                              label={fieldLabels[fieldKey] || fieldKey}
-                              fieldKey={fieldKey}
-                              icon={<LucideIcon name="file-text" size={20} />}
-                              value={details[fieldKey]}
-                              onChange={(e) => handleDetailChange(fieldKey, e.target.value)}
-                              onDelete={(fKey) => onDeleteDetailField(bank.id, fKey)}
-                          />
-                      ))}
+                      {/* Other Fields - ドラッグで順序変更可能 */}
+                      <div className="space-y-2">
+                          {otherFields.map(fieldKey => (
+                              <BankEditableRow
+                                  key={fieldKey}
+                                  label={fieldLabels[fieldKey] || fieldKey}
+                                  fieldKey={fieldKey}
+                                  icon={<LucideIcon name="file-text" size={18} />}
+                                  value={details[fieldKey]}
+                                  onChange={(e) => handleDetailChange(fieldKey, e.target.value)}
+                                  onDelete={(fKey) => onDeleteDetailField(bank.id, fKey)}
+                                  onDragStart={handleDragStart}
+                                  onDragOver={handleDragOver}
+                                  onDrop={handleDrop}
+                                  isDragging={draggedField === fieldKey}
+                              />
+                          ))}
+                      </div>
 
                       {showAddField ? (
                           <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 bg-blue-50">
@@ -1516,10 +1573,10 @@
                           </span>
                       </div>
                   </div>
-                  <div className="space-y-4">
+                  <div>
                       {/* URL Field - Special treatment with hyperlink */}
                       {details[urlField] && (
-                          <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+                          <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
                               <label className="flex items-center text-sm font-bold text-blue-800 mb-2">
                                   <LucideIcon name="link" size={20} className="mr-2" />
                                   {fieldLabels[urlField]}
@@ -1536,18 +1593,28 @@
                           </div>
                       )}
 
-                      {/* Other Fields */}
-                      {otherFields.map(fieldKey => (
-                          <div key={fieldKey} className="grid grid-cols-3 gap-4">
-                              <label className="flex items-center text-sm font-semibold text-gray-700 col-span-1">
-                                  <LucideIcon name="file-text" size={20} />
-                                  {fieldLabels[fieldKey] || fieldKey}
-                              </label>
-                              <div className="col-span-2 text-gray-800 whitespace-pre-wrap">
-                                  {details[fieldKey] || <span className="text-gray-400">未設定</span>}
-                              </div>
-                          </div>
-                      ))}
+                      {/* Other Fields - テーブル形式で見やすく */}
+                      <div className="border border-gray-200 rounded-lg overflow-hidden">
+                          <table className="w-full">
+                              <tbody>
+                                  {otherFields.map((fieldKey, idx) => (
+                                      <tr key={fieldKey} className={`${idx % 2 === 0 ? 'bg-gray-50' : 'bg-white'} border-b border-gray-200 last:border-b-0`}>
+                                          <td className="p-3 w-1/3 align-top border-r border-gray-200">
+                                              <label className="flex items-center text-sm font-semibold text-gray-700 gap-2">
+                                                  <LucideIcon name="file-text" size={16} className="text-gray-400 flex-shrink-0" />
+                                                  {fieldLabels[fieldKey] || fieldKey}
+                                              </label>
+                                          </td>
+                                          <td className="p-3 w-2/3 align-top">
+                                              <div className="text-gray-800 whitespace-pre-wrap">
+                                                  {details[fieldKey] || <span className="text-gray-400 italic">未設定</span>}
+                                              </div>
+                                          </td>
+                                      </tr>
+                                  ))}
+                              </tbody>
+                          </table>
+                      </div>
                   </div>
               </div> </div> );
           }
