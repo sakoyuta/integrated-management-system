@@ -6065,8 +6065,224 @@
             );
         };
 
+        // ==========================================
+        //  ログイン画面コンポーネント
+        // ==========================================
+        const LOGIN_PASSWORD = 'ghouse0648';
+
+        const LoginScreen = ({ onLogin }) => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [rememberMe, setRememberMe] = useState(false);
+            const [error, setError] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+
+            useEffect(() => {
+                // 保存されたメールアドレスがあれば復元
+                const savedEmail = localStorage.getItem('ghouse_saved_email');
+                if (savedEmail) {
+                    setEmail(savedEmail);
+                    setRememberMe(true);
+                }
+            }, []);
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                setError('');
+                setIsLoading(true);
+
+                // メールアドレスの簡易バリデーション
+                if (!email || !email.includes('@')) {
+                    setError('有効なメールアドレスを入力してください');
+                    setIsLoading(false);
+                    return;
+                }
+
+                // パスワードチェック
+                if (password !== LOGIN_PASSWORD) {
+                    setError('パスワードが正しくありません');
+                    setIsLoading(false);
+                    return;
+                }
+
+                // ログイン成功
+                setTimeout(() => {
+                    // ログイン情報を保存
+                    localStorage.setItem('ghouse_logged_in', 'true');
+                    localStorage.setItem('ghouse_user_email', email);
+                    localStorage.setItem('ghouse_login_time', new Date().toISOString());
+
+                    // メールアドレスを記憶する場合
+                    if (rememberMe) {
+                        localStorage.setItem('ghouse_saved_email', email);
+                    } else {
+                        localStorage.removeItem('ghouse_saved_email');
+                    }
+
+                    setIsLoading(false);
+                    onLogin(email);
+                }, 500);
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-600 via-blue-700 to-blue-800 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                        {/* ヘッダー */}
+                        <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-8 text-center">
+                            <div className="w-20 h-20 bg-white rounded-full mx-auto mb-4 flex items-center justify-center shadow-lg">
+                                <LucideIcon name="building-2" size={40} className="text-blue-600" />
+                            </div>
+                            <h1 className="text-2xl font-bold text-white">G-house</h1>
+                            <p className="text-blue-200 mt-1">営業管理システム</p>
+                        </div>
+
+                        {/* フォーム */}
+                        <form onSubmit={handleSubmit} className="p-8">
+                            <div className="space-y-5">
+                                {/* メールアドレス */}
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        メールアドレス（Google）
+                                    </label>
+                                    <div className="relative">
+                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <LucideIcon name="mail" size={20} className="text-gray-400" />
+                                        </div>
+                                        <input
+                                            type="email"
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                            placeholder="example@gmail.com"
+                                            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* パスワード */}
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        パスワード
+                                    </label>
+                                    <div className="relative">
+                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <LucideIcon name="lock" size={20} className="text-gray-400" />
+                                        </div>
+                                        <input
+                                            type="password"
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                            placeholder="パスワードを入力"
+                                            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* ログイン情報を記憶 */}
+                                <div className="flex items-center">
+                                    <input
+                                        type="checkbox"
+                                        id="rememberMe"
+                                        checked={rememberMe}
+                                        onChange={(e) => setRememberMe(e.target.checked)}
+                                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                    />
+                                    <label htmlFor="rememberMe" className="ml-2 text-sm text-gray-600">
+                                        メールアドレスを記憶する
+                                    </label>
+                                </div>
+
+                                {/* エラーメッセージ */}
+                                {error && (
+                                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
+                                        <LucideIcon name="alert-circle" size={20} />
+                                        <span className="text-sm">{error}</span>
+                                    </div>
+                                )}
+
+                                {/* ログインボタン */}
+                                <button
+                                    type="submit"
+                                    disabled={isLoading}
+                                    className={`w-full py-3 px-4 rounded-lg font-bold text-white transition-all ${
+                                        isLoading
+                                            ? 'bg-gray-400 cursor-not-allowed'
+                                            : 'bg-blue-600 hover:bg-blue-700 active:scale-[0.98]'
+                                    }`}
+                                >
+                                    {isLoading ? (
+                                        <span className="flex items-center justify-center gap-2">
+                                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                            ログイン中...
+                                        </span>
+                                    ) : (
+                                        <span className="flex items-center justify-center gap-2">
+                                            <LucideIcon name="log-in" size={20} />
+                                            ログイン
+                                        </span>
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+
+                        {/* フッター */}
+                        <div className="bg-gray-50 px-8 py-4 text-center border-t border-gray-200">
+                            <p className="text-xs text-gray-500">
+                                © 2026 G-house All Rights Reserved.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         const UnifiedApp = () => {
           const [currentView, setCurrentView] = useState('home');
+          const [isLoggedIn, setIsLoggedIn] = useState(false);
+          const [userEmail, setUserEmail] = useState('');
+          const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+          // 初回ロード時にログイン状態をチェック
+          useEffect(() => {
+              const loggedIn = localStorage.getItem('ghouse_logged_in') === 'true';
+              const email = localStorage.getItem('ghouse_user_email');
+              if (loggedIn && email) {
+                  setIsLoggedIn(true);
+                  setUserEmail(email);
+              }
+              setIsCheckingAuth(false);
+          }, []);
+
+          const handleLogin = (email) => {
+              setIsLoggedIn(true);
+              setUserEmail(email);
+          };
+
+          const handleLogout = () => {
+              localStorage.removeItem('ghouse_logged_in');
+              localStorage.removeItem('ghouse_user_email');
+              localStorage.removeItem('ghouse_login_time');
+              setIsLoggedIn(false);
+              setUserEmail('');
+          };
+
+          // 認証チェック中
+          if (isCheckingAuth) {
+              return (
+                  <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+                      <div className="text-center">
+                          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                          <p className="text-gray-600">読み込み中...</p>
+                      </div>
+                  </div>
+              );
+          }
+
+          // 未ログインの場合はログイン画面を表示
+          if (!isLoggedIn) {
+              return <LoginScreen onLogin={handleLogin} />;
+          }
 
           return (
             <div className="h-full flex flex-col">
@@ -6074,12 +6290,26 @@
                 <div className="container mx-auto px-4">
                   <div className="flex items-center h-16">
                     <div className="text-xl font-bold text-gray-800 mr-8">G-house | 営業サイト</div>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 flex-1">
                        {['home', 'dashboard', 'sales', 'flow', 'bank', 'debut', 'stockcon', 'schedule'].map(view => (
                            <button key={view} onClick={() => setCurrentView(view)} className={`px-3 py-2 rounded-md font-medium transition-colors text-sm ${currentView === view ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
                              {view === 'home' ? 'ホーム' : view === 'dashboard' ? 'ダッシュボード' : view === 'sales' ? '営業育成' : view === 'flow' ? '営業フロー' : view === 'bank' ? '各種銀行' : view === 'debut' ? 'デビュー研修' : view === 'stockcon' ? 'ストコン情報' : 'スケジュール'}
                            </button>
                        ))}
+                    </div>
+                    {/* ユーザー情報とログアウト */}
+                    <div className="flex items-center gap-3 ml-4">
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <LucideIcon name="user" size={18} className="text-gray-400" />
+                            <span className="max-w-[150px] truncate">{userEmail}</span>
+                        </div>
+                        <button
+                            onClick={handleLogout}
+                            className="flex items-center gap-1 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                        >
+                            <LucideIcon name="log-out" size={16} />
+                            ログアウト
+                        </button>
                     </div>
                   </div>
                 </div>
