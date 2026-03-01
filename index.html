@@ -6584,6 +6584,12 @@
                 showMsg(`「${name}」を${!currentDisabled ? '無効' : '有効'}にしました`);
             };
 
+            const handleDeleteUser = async (uid, name) => {
+                if (!window.confirm(`「${name}」を削除しますか？\nこの操作は取り消せません。`)) return;
+                await database.ref(`users/${uid}`).remove();
+                showMsg(`「${name}」を削除しました`);
+            };
+
             return (
                 <div className="flex-1 h-full bg-gray-100 p-6 overflow-y-auto">
                     <div className="max-w-3xl mx-auto">
@@ -6629,9 +6635,14 @@
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-3 text-center">
-                                                    <button onClick={() => handleToggleDisable(u.uid, u.name, u.disabled)} className={`text-xs px-3 py-1.5 rounded-lg font-bold transition ${u.disabled ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}>
-                                                        {u.disabled ? '有効にする' : '無効にする'}
-                                                    </button>
+                                                    <div className="flex items-center justify-center gap-2">
+                                                        <button onClick={() => handleToggleDisable(u.uid, u.name, u.disabled)} className={`text-xs px-3 py-1.5 rounded-lg font-bold transition ${u.disabled ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-orange-100 text-orange-600 hover:bg-orange-200'}`}>
+                                                            {u.disabled ? '有効にする' : '無効にする'}
+                                                        </button>
+                                                        <button onClick={() => handleDeleteUser(u.uid, u.name)} className="text-xs px-3 py-1.5 rounded-lg font-bold transition bg-red-100 text-red-600 hover:bg-red-200">
+                                                            削除
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))}
