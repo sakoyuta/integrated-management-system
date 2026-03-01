@@ -6108,38 +6108,71 @@
         };
 
         // ==========================================
-        //  ログイン画面コンポーネント（Google認証）
+        //  ログイン画面コンポーネント（メール/パスワード認証）
         // ==========================================
 
         const LoginScreen = ({ onLogin }) => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
             const [error, setError] = useState('');
             const [isLoading, setIsLoading] = useState(false);
+            const [isSetupMode, setIsSetupMode] = useState(false);
+            const [setupName, setSetupName] = useState('');
+            const [noUsersExist, setNoUsersExist] = useState(false);
 
-            const handleGoogleLogin = async () => {
+            useEffect(() => {
+                database.ref('users').once('value').then(snap => {
+                    setNoUsersExist(!snap.exists());
+                });
+            }, []);
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
                 setError('');
                 setIsLoading(true);
-
                 try {
-                    const result = await auth.signInWithPopup(googleProvider);
+                    const result = await auth.signInWithEmailAndPassword(email.trim(), password);
                     const user = result.user;
-                    console.log('Google login successful:', user.email);
-
-                    // ログイン情報を保存
-                    localStorage.setItem('ghouse_logged_in', 'true');
-                    localStorage.setItem('ghouse_user_email', user.email);
-                    localStorage.setItem('ghouse_login_time', new Date().toISOString());
-
-                    onLogin(user.email);
-                } catch (error) {
-                    console.error('Google login error:', error);
-                    if (error.code === 'auth/popup-closed-by-user') {
-                        setError('ログインがキャンセルされました');
-                    } else if (error.code === 'auth/popup-blocked') {
-                        setError('ポップアップがブロックされました。ブラウザの設定を確認してください');
-                    } else if (error.code === 'auth/unauthorized-domain') {
-                        setError('このドメインは認証に許可されていません。Firebaseコンソールで設定を確認してください');
+                    const snap = await database.ref(`users/${user.uid}`).once('value');
+                    if (!snap.exists() || snap.val().disabled) {
+                        await auth.signOut();
+                        setError('アクセス権限がありません。管理者にお問い合わせください');
+                        return;
+                    }
+                    const userData = snap.val();
+                    onLogin(userData.email, userData.name, userData.isAdmin || false);
+                } catch (err) {
+                    if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+                        setError('メールアドレスまたはパスワードが正しくありません');
                     } else {
-                        setError('ログインに失敗しました: ' + error.message);
+                        setError('ログインに失敗しました: ' + err.message);
+                    }
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const handleInitialSetup = async (e) => {
+                e.preventDefault();
+                if (!setupName.trim()) { setError('お名前を入力してください'); return; }
+                setError('');
+                setIsLoading(true);
+                try {
+                    const result = await auth.createUserWithEmailAndPassword(email.trim(), password);
+                    const user = result.user;
+                    await database.ref(`users/${user.uid}`).set({
+                        email: user.email,
+                        name: setupName.trim(),
+                        isAdmin: true,
+                        disabled: false,
+                        createdAt: new Date().toISOString()
+                    });
+                    onLogin(user.email, setupName.trim(), true);
+                } catch (err) {
+                    if (err.code === 'auth/email-already-in-use') {
+                        setError('このメールアドレスは既に登録されています');
+                    } else {
+                        setError('設定に失敗しました: ' + err.message);
                     }
                 } finally {
                     setIsLoading(false);
@@ -6160,54 +6193,57 @@
 
                         {/* ログインエリア */}
                         <div className="p-8">
-                            <div className="space-y-5">
-                                <div className="text-center mb-6">
-                                    <p className="text-gray-600">Googleアカウントでログインしてください</p>
-                                </div>
-
-                                {/* エラーメッセージ */}
-                                {error && (
-                                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
-                                        <LucideIcon name="alert-circle" size={20} />
-                                        <span className="text-sm">{error}</span>
+                            {isSetupMode && noUsersExist ? (
+                                <form onSubmit={handleInitialSetup} className="space-y-4">
+                                    <div className="text-center mb-4">
+                                        <span className="inline-block bg-blue-100 text-blue-700 text-xs font-bold px-3 py-1 rounded-full mb-2">初期設定</span>
+                                        <p className="text-sm text-gray-600">管理者アカウントを作成してください</p>
                                     </div>
-                                )}
-
-                                {/* Googleログインボタン */}
-                                <button
-                                    onClick={handleGoogleLogin}
-                                    disabled={isLoading}
-                                    className={`w-full py-3 px-4 rounded-lg font-bold transition-all flex items-center justify-center gap-3 ${
-                                        isLoading
-                                            ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                                            : 'bg-white border-2 border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 active:scale-[0.98]'
-                                    }`}
-                                >
-                                    {isLoading ? (
-                                        <span className="flex items-center justify-center gap-2">
-                                            <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-                                            ログイン中...
-                                        </span>
-                                    ) : (
-                                        <>
-                                            <svg className="w-5 h-5" viewBox="0 0 24 24">
-                                                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                                                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                                                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                                                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                                            </svg>
-                                            Googleでログイン
-                                        </>
+                                    {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">お名前</label>
+                                        <input type="text" value={setupName} onChange={e => setSetupName(e.target.value)} placeholder="例：佐古" required className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+                                        <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="例：sy@g-house.osaka.jp" required className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">パスワード（8文字以上）</label>
+                                        <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="パスワードを設定" required minLength={8} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm" />
+                                    </div>
+                                    <button type="submit" disabled={isLoading} className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                        {isLoading ? '設定中...' : '管理者アカウントを作成'}
+                                    </button>
+                                    <button type="button" onClick={() => { setIsSetupMode(false); setError(''); }} className="w-full py-2 text-sm text-gray-500 hover:text-gray-700 transition">← ログイン画面に戻る</button>
+                                </form>
+                            ) : (
+                                <form onSubmit={handleLogin} className="space-y-4">
+                                    <div className="text-center mb-2">
+                                        <p className="text-gray-600 text-sm">メールアドレスとパスワードでログイン</p>
+                                    </div>
+                                    {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+                                        <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="メールアドレスを入力" required className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">パスワード</label>
+                                        <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="パスワードを入力" required className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm" />
+                                    </div>
+                                    <button type="submit" disabled={isLoading} className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                        {isLoading ? 'ログイン中...' : 'ログイン'}
+                                    </button>
+                                    {noUsersExist && (
+                                        <button type="button" onClick={() => { setIsSetupMode(true); setError(''); }} className="w-full py-2 text-sm text-blue-500 hover:text-blue-700 transition">初期設定（初回のみ）</button>
                                     )}
-                                </button>
-                            </div>
+                                </form>
+                            )}
                         </div>
 
                         {/* フッター */}
                         <div className="bg-gray-50 px-8 py-4 text-center border-t border-gray-200">
-                            <p className="text-xs text-gray-500">
-                                © 2026 G-house All Rights Reserved.
-                            </p>
+                            <p className="text-xs text-gray-500">© 2026 G-house All Rights Reserved.</p>
                         </div>
                     </div>
                 </div>
@@ -6421,29 +6457,207 @@
             );
         };
 
+        // ==========================================
+        //  ユーザー管理コンポーネント（管理者専用）
+        // ==========================================
+
+        const UserManagementApp = () => {
+            const [users, setUsers] = useState([]);
+            const [isLoading, setIsLoading] = useState(true);
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [newEmail, setNewEmail] = useState('');
+            const [newName, setNewName] = useState('');
+            const [newPassword, setNewPassword] = useState('');
+            const [newIsAdmin, setNewIsAdmin] = useState(false);
+            const [addError, setAddError] = useState('');
+            const [isAdding, setIsAdding] = useState(false);
+            const [message, setMessage] = useState('');
+
+            useEffect(() => {
+                const ref = database.ref('users');
+                const handler = snap => {
+                    if (snap.exists()) {
+                        const data = snap.val();
+                        const list = Object.entries(data).map(([uid, u]) => ({ uid, ...u }));
+                        setUsers(list.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
+                    } else {
+                        setUsers([]);
+                    }
+                    setIsLoading(false);
+                };
+                ref.on('value', handler);
+                return () => ref.off('value', handler);
+            }, []);
+
+            const showMsg = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 3000); };
+
+            const handleAddUser = async (e) => {
+                e.preventDefault();
+                setAddError('');
+                setIsAdding(true);
+                try {
+                    const secondaryApp = firebase.initializeApp(firebaseConfig, 'secondary_' + Date.now());
+                    const secondaryAuth = secondaryApp.auth();
+                    const result = await secondaryAuth.createUserWithEmailAndPassword(newEmail.trim(), newPassword);
+                    const uid = result.user.uid;
+                    await secondaryAuth.signOut();
+                    await secondaryApp.delete();
+                    await database.ref(`users/${uid}`).set({
+                        email: newEmail.trim(),
+                        name: newName.trim(),
+                        isAdmin: newIsAdmin,
+                        disabled: false,
+                        createdAt: new Date().toISOString()
+                    });
+                    const addedName = newName.trim();
+                    setNewEmail(''); setNewName(''); setNewPassword(''); setNewIsAdmin(false);
+                    setShowAddModal(false);
+                    showMsg(`「${addedName}」を追加しました`);
+                } catch (err) {
+                    if (err.code === 'auth/email-already-in-use') {
+                        setAddError('このメールアドレスは既に使用されています');
+                    } else if (err.code === 'auth/weak-password') {
+                        setAddError('パスワードは8文字以上にしてください');
+                    } else {
+                        setAddError('追加に失敗しました: ' + err.message);
+                    }
+                } finally {
+                    setIsAdding(false);
+                }
+            };
+
+            const handleToggleDisable = async (uid, name, currentDisabled) => {
+                await database.ref(`users/${uid}/disabled`).set(!currentDisabled);
+                showMsg(`「${name}」を${!currentDisabled ? '無効' : '有効'}にしました`);
+            };
+
+            return (
+                <div className="flex-1 h-full bg-gray-100 p-6 overflow-y-auto">
+                    <div className="max-w-3xl mx-auto">
+                        <div className="flex items-center justify-between mb-6">
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-800">ユーザー管理</h2>
+                                <p className="text-sm text-gray-500 mt-1">メンバーの追加・無効化（管理者専用）</p>
+                            </div>
+                            <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition flex items-center gap-2">
+                                <LucideIcon name="user-plus" size={16} /> メンバー追加
+                            </button>
+                        </div>
+
+                        {message && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{message}</div>}
+
+                        {isLoading ? (
+                            <div className="text-center py-12 text-gray-500">読み込み中...</div>
+                        ) : (
+                            <div className="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-50 border-b border-gray-200">
+                                        <tr>
+                                            <th className="text-left px-4 py-3 font-semibold text-gray-600">名前</th>
+                                            <th className="text-left px-4 py-3 font-semibold text-gray-600">メールアドレス</th>
+                                            <th className="text-center px-4 py-3 font-semibold text-gray-600">権限</th>
+                                            <th className="text-center px-4 py-3 font-semibold text-gray-600">状態</th>
+                                            <th className="text-center px-4 py-3 font-semibold text-gray-600">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {users.map(u => (
+                                            <tr key={u.uid} className={`border-b border-gray-100 last:border-0 ${u.disabled ? 'bg-gray-50 opacity-60' : ''}`}>
+                                                <td className="px-4 py-3 font-medium text-gray-800">{u.name}</td>
+                                                <td className="px-4 py-3 text-gray-600">{u.email}</td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${u.isAdmin ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}>
+                                                        {u.isAdmin ? '管理者' : 'メンバー'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${u.disabled ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
+                                                        {u.disabled ? '無効' : '有効'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <button onClick={() => handleToggleDisable(u.uid, u.name, u.disabled)} className={`text-xs px-3 py-1.5 rounded-lg font-bold transition ${u.disabled ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}>
+                                                        {u.disabled ? '有効にする' : '無効にする'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {users.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">ユーザーがいません</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+
+                        {showAddModal && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                                    <div className="p-6">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-4">新しいメンバーを追加</h3>
+                                        <form onSubmit={handleAddUser} className="space-y-4">
+                                            {addError && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">{addError}</div>}
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">名前</label>
+                                                <input type="text" value={newName} onChange={e => setNewName(e.target.value)} required placeholder="例：山田太郎" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+                                                <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required placeholder="例：yamada@g-house.osaka.jp" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">初期パスワード（8文字以上）</label>
+                                                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={8} placeholder="初期パスワードを設定" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <input type="checkbox" id="newIsAdmin" checked={newIsAdmin} onChange={e => setNewIsAdmin(e.target.checked)} className="w-4 h-4 rounded" />
+                                                <label htmlFor="newIsAdmin" className="text-sm text-gray-700">管理者権限を付与する</label>
+                                            </div>
+                                            <div className="flex gap-3 pt-2">
+                                                <button type="button" onClick={() => { setShowAddModal(false); setAddError(''); }} className="flex-1 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition">キャンセル</button>
+                                                <button type="submit" disabled={isAdding} className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition disabled:opacity-50">{isAdding ? '追加中...' : '追加する'}</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
         const UnifiedApp = () => {
           const [currentView, setCurrentView] = useState('home');
           const [isLoggedIn, setIsLoggedIn] = useState(false);
           const [userEmail, setUserEmail] = useState('');
+          const [userName, setUserName] = useState('');
+          const [isAdmin, setIsAdmin] = useState(false);
           const [isCheckingAuth, setIsCheckingAuth] = useState(true);
           const [showDiagnostics, setShowDiagnostics] = useState(false);
 
-          // Firebase Auth状態を監視
+          // Firebase Auth状態を監視（DB照合でアクセス制御）
           useEffect(() => {
-              const unsubscribe = auth.onAuthStateChanged((user) => {
+              const unsubscribe = auth.onAuthStateChanged(async (user) => {
                   if (user) {
-                      // ログイン中
-                      setIsLoggedIn(true);
-                      setUserEmail(user.email);
-                      localStorage.setItem('ghouse_logged_in', 'true');
-                      localStorage.setItem('ghouse_user_email', user.email);
+                      try {
+                          const snap = await database.ref(`users/${user.uid}`).once('value');
+                          if (snap.exists() && !snap.val().disabled) {
+                              const userData = snap.val();
+                              setIsLoggedIn(true);
+                              setUserEmail(userData.email);
+                              setUserName(userData.name);
+                              setIsAdmin(userData.isAdmin || false);
+                          } else {
+                              await auth.signOut();
+                              setIsLoggedIn(false);
+                              setUserEmail(''); setUserName(''); setIsAdmin(false);
+                          }
+                      } catch (e) {
+                          setIsLoggedIn(false);
+                          setUserEmail(''); setUserName(''); setIsAdmin(false);
+                      }
                   } else {
-                      // ログアウト状態
                       setIsLoggedIn(false);
-                      setUserEmail('');
-                      localStorage.removeItem('ghouse_logged_in');
-                      localStorage.removeItem('ghouse_user_email');
-                      localStorage.removeItem('ghouse_login_time');
+                      setUserEmail(''); setUserName(''); setIsAdmin(false);
                   }
                   setIsCheckingAuth(false);
               });
@@ -6451,9 +6665,11 @@
               return () => unsubscribe();
           }, []);
 
-          const handleLogin = (email) => {
+          const handleLogin = (email, name, adminFlag) => {
               setIsLoggedIn(true);
               setUserEmail(email);
+              setUserName(name);
+              setIsAdmin(adminFlag);
           };
 
           const handleLogout = async () => {
@@ -6495,6 +6711,11 @@
                              {view === 'home' ? 'ホーム' : view === 'dashboard' ? 'ダッシュボード' : view === 'sales' ? '営業育成' : view === 'flow' ? '営業フロー' : view === 'bank' ? '各種銀行' : view === 'debut' ? 'デビュー研修' : view === 'stockcon' ? 'ストコン情報' : 'スケジュール'}
                            </button>
                        ))}
+                       {isAdmin && (
+                           <button onClick={() => setCurrentView('admin')} className={`px-3 py-2 rounded-md font-medium transition-colors text-sm ${currentView === 'admin' ? 'bg-purple-600 text-white' : 'text-purple-600 hover:bg-purple-50'}`}>
+                               ユーザー管理
+                           </button>
+                       )}
                     </div>
                     {/* ユーザー情報とログアウト */}
                     <div className="flex items-center gap-3 ml-4">
@@ -6507,7 +6728,8 @@
                         </button>
                         <div className="flex items-center gap-2 text-sm text-gray-600">
                             <LucideIcon name="user" size={18} className="text-gray-400" />
-                            <span className="max-w-[150px] truncate">{userEmail}</span>
+                            <span className="max-w-[150px] truncate">{userName || userEmail}</span>
+                            {isAdmin && <span className="text-xs bg-purple-100 text-purple-700 font-bold px-1.5 py-0.5 rounded-full">管理者</span>}
                         </div>
                         <button
                             onClick={handleLogout}
@@ -6531,6 +6753,7 @@
                     {currentView === 'debut' && <DebutTrainingApp />}
                     {currentView === 'stockcon' && <StockConInfoApp />}
                     {currentView === 'schedule' && <ScheduleApp />}
+                    {currentView === 'admin' && isAdmin && <UserManagementApp />}
                 </ErrorBoundary>
               </div>
             </div>
