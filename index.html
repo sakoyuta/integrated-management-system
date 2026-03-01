@@ -104,8 +104,8 @@
         const storage = firebase.storage();
         const auth = firebase.auth();
         const googleProvider = new firebase.auth.GoogleAuthProvider();
-        // 特定のドメインのみ許可する場合（オプション）
-        // googleProvider.setCustomParameters({ hd: 'g-house.osaka.jp' });
+        // ログイン/初期設定ハンドラが処理中の場合にonAuthStateChangedの干渉を防ぐフラグ
+        let _authHandlerActive = false;
 
         // Firebase Storage helper functions
         const uploadToStorage = async (file, path, timeoutMs = 30000) => {
@@ -6130,6 +6130,7 @@
                 e.preventDefault();
                 setError('');
                 setIsLoading(true);
+                _authHandlerActive = true;
                 try {
                     const result = await auth.signInWithEmailAndPassword(email.trim(), password);
                     const user = result.user;
@@ -6148,6 +6149,7 @@
                         setError('ログインに失敗しました: ' + err.message);
                     }
                 } finally {
+                    _authHandlerActive = false;
                     setIsLoading(false);
                 }
             };
@@ -6157,24 +6159,45 @@
                 if (!setupName.trim()) { setError('お名前を入力してください'); return; }
                 setError('');
                 setIsLoading(true);
+                _authHandlerActive = true;
                 try {
-                    const result = await auth.createUserWithEmailAndPassword(email.trim(), password);
-                    const user = result.user;
-                    await database.ref(`users/${user.uid}`).set({
-                        email: user.email,
-                        name: setupName.trim(),
-                        isAdmin: true,
-                        disabled: false,
-                        createdAt: new Date().toISOString()
-                    });
-                    onLogin(user.email, setupName.trim(), true);
+                    let uid, userEmail;
+                    try {
+                        const result = await auth.createUserWithEmailAndPassword(email.trim(), password);
+                        uid = result.user.uid;
+                        userEmail = result.user.email;
+                    } catch (createErr) {
+                        if (createErr.code === 'auth/email-already-in-use') {
+                            // 前回の途中失敗でAuthにアカウントが残っている場合 → サインインして継続
+                            const loginResult = await auth.signInWithEmailAndPassword(email.trim(), password);
+                            uid = loginResult.user.uid;
+                            userEmail = loginResult.user.email;
+                        } else {
+                            throw createErr;
+                        }
+                    }
+                    // DBにエントリが無ければ作成
+                    const existingSnap = await database.ref(`users/${uid}`).once('value');
+                    if (!existingSnap.exists()) {
+                        await database.ref(`users/${uid}`).set({
+                            email: userEmail,
+                            name: setupName.trim(),
+                            isAdmin: true,
+                            disabled: false,
+                            createdAt: new Date().toISOString()
+                        });
+                    }
+                    const snap = await database.ref(`users/${uid}`).once('value');
+                    const userData = snap.val();
+                    onLogin(userData.email, userData.name, userData.isAdmin !== false);
                 } catch (err) {
-                    if (err.code === 'auth/email-already-in-use') {
-                        setError('このメールアドレスは既に登録されています');
+                    if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+                        setError('パスワードが正しくありません');
                     } else {
                         setError('設定に失敗しました: ' + err.message);
                     }
                 } finally {
+                    _authHandlerActive = false;
                     setIsLoading(false);
                 }
             };
@@ -6638,7 +6661,13 @@
           useEffect(() => {
               const unsubscribe = auth.onAuthStateChanged(async (user) => {
                   if (user) {
+                      // ログイン/初期設定ハンドラが処理中の場合はスキップ（競合防止）
+                      if (_authHandlerActive) {
+                          setIsCheckingAuth(false);
+                          return;
+                      }
                       try {
+                          // ページリフレッシュ時のセッション復元：DBでユーザー確認
                           const snap = await database.ref(`users/${user.uid}`).once('value');
                           if (snap.exists() && !snap.val().disabled) {
                               const userData = snap.val();
