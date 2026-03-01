@@ -11,12 +11,6 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <!-- EmailJS SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
-    <script>
-        emailjs.init('Q4rIzEO1L9zYTGd7X');
-    </script>
-
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
@@ -6560,11 +6554,24 @@
                     });
                     // ② メール送信（失敗してもアカウント登録は維持）
                     try {
-                        await window.emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-                            to_name: nameTrimmed,
-                            to_email: emailTrimmed,
-                            password: autoPassword,
+                        const emailRes = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                service_id: EMAILJS_SERVICE_ID,
+                                template_id: EMAILJS_TEMPLATE_ID,
+                                user_id: EMAILJS_PUBLIC_KEY,
+                                template_params: {
+                                    to_name: nameTrimmed,
+                                    to_email: emailTrimmed,
+                                    password: autoPassword,
+                                }
+                            })
                         });
+                        if (!emailRes.ok) {
+                            const errText = await emailRes.text();
+                            throw new Error(errText);
+                        }
                         setNewEmail(''); setNewName(''); setNewIsAdmin(false);
                         setShowAddModal(false);
                         showMsg(`「${nameTrimmed}」を追加し、ログイン情報をメール送信しました`);
