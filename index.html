@@ -1351,14 +1351,13 @@
           );
         };
 
-        const FlowManagementApp = () => {
+        const FlowManagementApp = ({ onNavigateToKarte }) => {
             const [flowSteps, setFlowSteps, isLoadingFlowSteps] = useFirebaseState('flowSteps', initialFlowSteps.map((step, index) => ({ ...step, masterIndex: index })));
             const [selectedStepId, setSelectedStepId] = useState(null);
             const [draggingItem, setDraggingItem] = useState(null);
             const [dragOverItem, setDragOverItem] = useState(null);
             const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
             const [isEditMode, setIsEditMode] = useState(false);
-            const [showKarte, setShowKarte] = useState(false);
 
             // Set initial selected step after data loads
             useEffect(() => {
@@ -1408,17 +1407,16 @@
 
             return (
                 <div className="flex flex-col h-full w-full bg-gray-100 font-sans">
-                    <div className="px-4 py-2 bg-white border-b border-gray-200 flex-shrink-0">
+                    <div className="px-4 py-2 bg-teal-600 flex-shrink-0 flex items-center justify-between">
+                        <span className="text-white text-sm font-bold">顧客情報はこちら</span>
                         <button
-                            onClick={() => setShowKarte(!showKarte)}
-                            className={`px-4 py-2 rounded text-sm font-bold transition-colors flex items-center gap-2 ${showKarte ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
+                            onClick={() => onNavigateToKarte && onNavigateToKarte()}
+                            className="flex items-center gap-2 bg-white text-teal-700 font-bold px-5 py-2 rounded-lg shadow hover:bg-teal-50 transition-all text-sm"
                         >
-                            {showKarte ? '← 営業フローに戻る' : '顧客カルテ'}
+                            <LucideIcon name="notebook" size={16} />
+                            顧客カルテを開く
                         </button>
                     </div>
-                    {showKarte ? (
-                        <iframe src="https://customer-karte-pi.vercel.app/" className="flex-1 w-full border-none" title="顧客カルテ" allow="fullscreen" />
-                    ) : (
                         <div className="flex flex-1 overflow-hidden">
                             <ErrorBoundary>
                                 <StepSelector listTitle="営業作業フロー" steps={flowSteps} selectedStepId={selectedStepId} onSelectStep={setSelectedStepId} onAddStep={handleAddStep} onRequestDeleteStep={handleRequestDeleteStep} draggingItem={draggingItem} setDraggingItem={setDraggingItem} dragOverItem={dragOverItem} setDragOverItem={setDragOverItem} onDragSort={handleDragSort} />
@@ -1426,7 +1424,6 @@
                                 <ConfirmModal isOpen={modalState.isOpen} title={modalState.title} message={modalState.message} onConfirm={modalState.onConfirm} onCancel={closeModal} />
                             </ErrorBoundary>
                         </div>
-                    )}
                 </div>
             );
         };
@@ -6648,6 +6645,900 @@
             );
         };
 
+        // ==========================================
+        //  顧客カルテ（KarteApp）コンポーネント群
+        // ==========================================
+
+        // --- 初期データ ---
+        const emptyKarteData = () => ({
+          sheetHeader: { belong: '', staffName: '', customerName: '', targetDate: '', rank: '' },
+          basic: {
+            rep: { name: '', age: '', contact: '', address: '', income: '', years: '' },
+            partner: { name: '', age: '', income: '', years: '' },
+            familyMembers: [
+              { role: '父', age: '', job: '', income: '', coLiveNow: '', coLiveFuture: '' },
+              { role: '母', age: '', job: '', income: '', coLiveNow: '', coLiveFuture: '' },
+              { role: '義父', age: '', job: '', income: '', coLiveNow: '', coLiveFuture: '' },
+              { role: '義母', age: '', job: '', income: '', coLiveNow: '', coLiveFuture: '' },
+            ]
+          },
+          general: {
+            life: { station: '', stationTime: '', housingType: '', family: '', homeLoc: '', hobby: '', reason: '', trigger: '', interest: '', currentMaker: '', rent: '', parking: '', otherCost: '' },
+            land: { hasLand: '', areaReason: '', commuteGoal: '', parentsRel: '', stationThought: '', currentHomeReason: '', landBudget: '' },
+            building: { floors: '', rooms: '', extraRooms: '', layoutPoint: '', goals: '', cars: '', garden: '', buildingBudget: '' },
+            money: { husbandIncome: '', wifeIncome: '', downPayment: '', savings: '', existingLoan: '', idealPayment: '', rentGap: '', totalBudget: '', monthlyHope: '', aid: '' },
+            time: { period: '', limit: '', reason: '' },
+            rival: { name: '', pros: '', cons: '' },
+            testClose: { hasTest: '', result: '', complaints: '', nextDetail: '' }
+          },
+          landDetail: {
+            area: { target: '', whyDeep: '' },
+            husband: { dest: '', time: '', method: '', feeling: '', limit: '' },
+            wife: { dest: '', time: '', method: '', feeling: '', limit: '' },
+            station: { importance: '', logic: '', current: '' },
+            parents: { loc: '', importance: '', access: '' },
+            priorities: [
+              { id: 'p1', label: '駅までの距離', note: '' },
+              { id: 'p2', label: 'スーパー、薬局', note: '' },
+              { id: 'p3', label: '小学校までの距離', note: '' },
+              { id: 'p4', label: '病院があるか', note: '' },
+              { id: 'p5', label: '分譲地', note: '' },
+              { id: 'p6', label: '前道の広さ', note: '' },
+              { id: 'p7', label: 'その土地までの道の狭さ', note: '' },
+            ],
+            ng: [
+              { id: 'n1', label: 'ハザード', note: '' },
+              { id: 'n2', label: '近くに川、池 ※虫・臭いなど', note: '' },
+              { id: 'n3', label: '街頭少なく暗い ※娘さんいる場合など', note: '' },
+              { id: 'n4', label: '交通量の多さ', note: '' },
+            ]
+          }
+        });
+
+        // --- アイコン ---
+        const KIcMap    = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>;
+        const KIcTrain  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 2C6.5 2 4 5 4 9v8l2 2h12l2-2V9c0-4-2.5-7-8-7zm0 0v4M4 14h16M8 18v2M16 18v2"/></svg>;
+        const KIcHome   = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>;
+        const KIcHeart  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>;
+        const KIcPrint  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>;
+        const KIcUser   = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>;
+        const KIcCoins  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
+        const KIcClock  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
+        const KIcFlask  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3h6m-6 0a1 1 0 00-1 1v6.586a1 1 0 01-.293.707l-5 5C1.854 17.146 3 19 4.707 19h14.586C21 19 22.146 17.146 21.293 16.293l-5-5A1 1 0 0116 10.586V4a1 1 0 00-1-1M9 3h6"/></svg>;
+        const KIcGrid   = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>;
+        const KIcPlus   = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>;
+        const KIcSave   = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>;
+        const KIcBack   = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>;
+        const KIcTrash  = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>;
+        const KIcEdit   = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>;
+        const KIcSettings = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>;
+
+        // --- 共通UIコンポーネント（カルテ専用） ---
+        const KSection = ({ title, icon: Icon, children }) => (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+            <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex items-center gap-2">
+              <span className="text-blue-600"><Icon /></span>
+              <h2 className="text-lg font-bold text-slate-800">{title}</h2>
+            </div>
+            <div className="p-6">{children}</div>
+          </div>
+        );
+
+        const KInputField = ({ label, placeholder = "", value, onChange, type = "text" }) => (
+          <div className="mb-4">
+            <label className="block text-sm font-bold text-slate-700 mb-1">{label}</label>
+            <input type={type} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+          </div>
+        );
+
+        const KTextAreaField = ({ label, placeholder = "", value, onChange }) => (
+          <div className="mb-4">
+            <label className="block text-sm font-bold text-slate-700 mb-1">{label}</label>
+            <textarea className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm min-h-[60px]" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+          </div>
+        );
+
+        const KUnitInput = ({ label, value = '', onChange, units = [''], placeholder = '' }) => {
+          const parseValue = (v) => {
+            if (!v) return { num: '', unit: units[0] || '' };
+            const sorted = [...units].sort((a,b) => b.length - a.length);
+            for (const u of sorted) { if (v.endsWith(u)) return { num: v.slice(0, -u.length), unit: u }; }
+            return { num: v, unit: units[0] || '' };
+          };
+          const init = parseValue(value);
+          const [selectedUnit, setSelectedUnit] = useState(init.unit);
+          const [numStr, setNumStr] = useState(init.num);
+          const handleNumChange = (n) => { setNumStr(n); onChange(n ? n + selectedUnit : ''); };
+          const handleUnitChange = (u) => { setSelectedUnit(u); onChange(numStr ? numStr + u : ''); };
+          return (
+            <div className="mb-4">
+              <label className="block text-sm font-bold text-slate-700 mb-1">{label}</label>
+              <div className="flex items-center gap-1">
+                <input type="number" min="0" className="flex-1 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm" placeholder={placeholder || '数値'} value={numStr} onChange={e => handleNumChange(e.target.value)} />
+                {units.length === 1 ? (
+                  <span className="px-3 py-2 bg-slate-100 border border-slate-300 rounded-md text-sm font-bold text-slate-600 whitespace-nowrap">{units[0]}</span>
+                ) : (
+                  <div className="flex gap-1">
+                    {units.map(u => (
+                      <button key={u} type="button" onClick={() => handleUnitChange(u)}
+                        className={`px-2.5 py-2 text-xs font-bold rounded border transition whitespace-nowrap ${selectedUnit === u ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                        {u}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        // --- 新規作成モーダル ---
+        const KNewCustomerModal = ({ onClose, onCreate }) => {
+          const [form, setForm] = useState({ staffName: '', belong: '', customerName: '' });
+          const [loading, setLoading] = useState(false);
+          const [error, setError] = useState('');
+          const valid = form.staffName.trim() && form.belong.trim() && form.customerName.trim();
+          const handleCreate = async () => {
+            if (!valid) return;
+            setLoading(true); setError('');
+            const err = await onCreate(form);
+            if (err) setError(err);
+            setLoading(false);
+          };
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+                <div className="bg-slate-800 text-white px-6 py-4">
+                  <h2 className="text-lg font-black">新規顧客カルテ作成</h2>
+                  <p className="text-slate-300 text-xs mt-1">以下の3項目を入力してください</p>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">営業担当者氏名 <span className="text-red-500">*</span></label><input className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例：山田 太郎" value={form.staffName} onChange={e => setForm(f => ({...f, staffName: e.target.value}))} /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">拠点 <span className="text-red-500">*</span></label><input className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例：大阪営業所" value={form.belong} onChange={e => setForm(f => ({...f, belong: e.target.value}))} /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">お客様名 <span className="text-red-500">*</span></label><input className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例：田中 様" value={form.customerName} onChange={e => setForm(f => ({...f, customerName: e.target.value}))} /></div>
+                  {error && <div className="bg-red-50 border border-red-200 rounded-lg p-3"><p className="text-red-700 text-xs font-bold">エラー: {error}</p></div>}
+                </div>
+                <div className="px-6 pb-6 flex gap-3">
+                  <button onClick={onClose} disabled={loading} className="flex-1 py-3 border border-slate-300 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-50">キャンセル</button>
+                  <button onClick={handleCreate} disabled={!valid || loading} className={`flex-1 py-3 rounded-xl font-bold text-white transition flex items-center justify-center gap-2 ${valid && !loading ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-300 cursor-not-allowed'}`}>
+                    {loading ? '作成中...' : <><KIcPlus /> 作成する</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        // --- 削除確認モーダル ---
+        const KDeleteModal = ({ customerName, onCancel, onConfirm }) => (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+              <p className="text-center font-bold text-slate-700 mb-2">以下のカルテを削除しますか？</p>
+              <p className="text-center text-lg font-black text-red-600 mb-6">「{customerName}」様</p>
+              <div className="flex gap-3">
+                <button onClick={onCancel} className="flex-1 py-3 border border-slate-300 rounded-xl font-bold text-slate-600 hover:bg-slate-50">キャンセル</button>
+                <button onClick={onConfirm} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700">削除する</button>
+              </div>
+            </div>
+          </div>
+        );
+
+        // --- 拠点管理モーダル ---
+        const KBranchManagerModal = ({ branches, onAdd, onDelete, onClose }) => {
+          const [newName, setNewName] = useState('');
+          const [loading, setLoading] = useState(false);
+          const [deleteTarget, setDeleteTarget] = useState(null);
+          const [addError, setAddError] = useState('');
+          const handleAdd = async () => {
+            const name = newName.trim();
+            if (!name) return;
+            setLoading(true); setAddError('');
+            const err = await onAdd(name);
+            if (err) { setAddError(err); } else { setNewName(''); }
+            setLoading(false);
+          };
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4">
+                <div className="px-6 pt-6 pb-4 border-b border-slate-200">
+                  <h2 className="text-lg font-black text-slate-800">拠点の管理</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">拠点の追加・削除ができます</p>
+                </div>
+                <div className="px-6 py-4 border-b border-slate-100">
+                  <div className="flex gap-2">
+                    <input className="flex-1 p-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="新しい拠点名を入力..." value={newName} onChange={e => { setNewName(e.target.value); setAddError(''); }} onKeyDown={e => e.key === 'Enter' && handleAdd()} />
+                    <button onClick={handleAdd} disabled={!newName.trim() || loading} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition">{loading ? '...' : '追加'}</button>
+                  </div>
+                  {addError && <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2"><p className="text-red-600 text-xs font-bold">{addError}</p></div>}
+                </div>
+                <div className="px-6 py-4 max-h-64 overflow-y-auto">
+                  {branches.length === 0 ? <p className="text-center text-slate-400 text-sm py-4">拠点が登録されていません</p> : (
+                    <ul className="space-y-2">
+                      {branches.map(b => (
+                        <li key={b.id} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2.5">
+                          <span className="font-bold text-slate-700 text-sm">{b.name}</span>
+                          {deleteTarget === b.id ? (
+                            <div className="flex gap-2">
+                              <button onClick={() => setDeleteTarget(null)} className="text-xs text-slate-500 font-bold px-2 py-1 border border-slate-300 rounded-lg hover:bg-white">キャンセル</button>
+                              <button onClick={async () => { await onDelete(b.id); setDeleteTarget(null); }} className="text-xs text-white font-bold px-2 py-1 bg-red-600 rounded-lg hover:bg-red-700">削除</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setDeleteTarget(b.id)} className="text-red-400 hover:text-red-600 transition p-1"><KIcTrash /></button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="px-6 pb-6"><button onClick={onClose} className="w-full py-3 border border-slate-300 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition">閉じる</button></div>
+              </div>
+            </div>
+          );
+        };
+
+        // --- 顧客一覧画面 ---
+        const KCustomerList = ({ customers, onNew, onEdit, onDelete, dbLoading, branches, onAddBranch, onDeleteBranch }) => {
+          const [search, setSearch] = useState('');
+          const [deleteTarget, setDeleteTarget] = useState(null);
+          const [selectedBranch, setSelectedBranch] = useState('all');
+          const [showBranchMgr, setShowBranchMgr] = useState(false);
+          const filtered = customers.filter(c => {
+            const matchSearch = c.customerName.includes(search) || c.staffName.includes(search) || c.belong.includes(search);
+            const matchBranch = selectedBranch === 'all' || c.belong === selectedBranch;
+            return matchSearch && matchBranch;
+          });
+          return (
+            <div className="min-h-screen bg-slate-100 font-sans">
+              {deleteTarget && <KDeleteModal customerName={deleteTarget.customerName} onCancel={() => setDeleteTarget(null)} onConfirm={() => { onDelete(deleteTarget.id); setDeleteTarget(null); }} />}
+              {showBranchMgr && <KBranchManagerModal branches={branches} onAdd={onAddBranch} onDelete={onDeleteBranch} onClose={() => setShowBranchMgr(false)} />}
+              <div className="max-w-5xl mx-auto px-4 py-8">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-blue-600"><KIcGrid /></span>
+                      <div><h1 className="text-2xl font-black text-slate-800 tracking-tight">🧭 顧客カルテ統合システム</h1><p className="text-sm text-slate-500 mt-0.5">G-House 営業部専用ツール</p></div>
+                    </div>
+                    <button onClick={onNew} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition shadow-md"><KIcPlus /> 新規カルテ作成</button>
+                  </div>
+                </div>
+                <div className="mb-4 flex items-center gap-2">
+                  <div className="flex gap-2 flex-wrap flex-1">
+                    <button onClick={() => setSelectedBranch('all')} className={`px-4 py-2 rounded-full text-sm font-bold transition border ${selectedBranch === 'all' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>全て ({customers.length})</button>
+                    {branches.map(b => {
+                      const count = customers.filter(c => c.belong === b.name).length;
+                      return <button key={b.id} onClick={() => setSelectedBranch(b.name)} className={`px-4 py-2 rounded-full text-sm font-bold transition border ${selectedBranch === b.name ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{b.name} ({count})</button>;
+                    })}
+                  </div>
+                  <button onClick={() => setShowBranchMgr(true)} className="p-2 border border-slate-300 text-slate-500 rounded-xl hover:bg-slate-50 hover:text-slate-700 transition flex-shrink-0" title="拠点を管理"><KIcSettings /></button>
+                </div>
+                <div className="mb-4"><input className="w-full p-3 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm" placeholder="🔍 お客様名・担当者名・拠点で検索..." value={search} onChange={e => setSearch(e.target.value)} /></div>
+                <p className="text-xs text-slate-400 mb-3 px-1">{dbLoading ? '読み込み中...' : `${filtered.length} 件のカルテ`}</p>
+                {filtered.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-16 text-center">
+                    <div className="text-5xl mb-4">📋</div>
+                    <p className="text-slate-500 font-bold">{(search || selectedBranch !== 'all') ? '検索結果が見つかりません' : 'カルテがまだありません'}</p>
+                    {!search && selectedBranch === 'all' && <p className="text-slate-400 text-sm mt-2">「新規カルテ作成」ボタンから始めてください</p>}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filtered.map(c => (
+                      <div key={c.id} className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition overflow-hidden">
+                        <div className="flex items-center gap-4 p-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-lg font-black text-slate-800">{c.customerName} 様</span>
+                              <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">{c.belong}</span>
+                            </div>
+                            <div className="flex items-center gap-4 mt-1 text-sm text-slate-500">
+                              <span>担当: <span className="font-bold text-slate-700">{c.staffName}</span></span>
+                              <span className="text-slate-300">|</span>
+                              <span>作成: {new Date(c.createdAt).toLocaleDateString('ja-JP')}</span>
+                              <span className="text-slate-300">|</span>
+                              <span>更新: {new Date(c.updatedAt).toLocaleDateString('ja-JP')} {new Date(c.updatedAt).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}</span>
+                            </div>
+                            {c.karteData.sheetHeader.targetDate && <span className="text-xs text-orange-600 font-bold mt-1 inline-block">契約目標日: {c.karteData.sheetHeader.targetDate}　ランク: {c.karteData.sheetHeader.rank}</span>}
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <button onClick={() => onEdit(c.id)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-1.5 hover:bg-blue-700 transition"><KIcEdit /> 開く</button>
+                            <button onClick={() => setDeleteTarget(c)} className="border border-red-200 text-red-500 px-3 py-2 rounded-lg font-bold text-sm flex items-center gap-1.5 hover:bg-red-50 transition"><KIcTrash /></button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        // --- カルテ編集画面 ---
+        const KKarteEditor = ({ customer, onBack, onSave, onUpdateInfo }) => {
+          const [activeTab, setActiveTab] = useState('flow');
+          const [data, setData] = useState(customer.karteData);
+          const [saveMsg, setSaveMsg] = useState('');
+          const [infoEdit, setInfoEdit] = useState(false);
+          const [infoForm, setInfoForm] = useState({ staffName: customer.staffName, belong: customer.belong, customerName: customer.customerName });
+          const [infoSaving, setInfoSaving] = useState(false);
+          const [infoErr, setInfoErr] = useState('');
+
+          const handleSaveInfo = async () => {
+            if (!infoForm.staffName.trim() || !infoForm.belong.trim() || !infoForm.customerName.trim()) return;
+            setInfoSaving(true); setInfoErr('');
+            const err = await onUpdateInfo(customer.id, infoForm);
+            if (err) setInfoErr(err); else setInfoEdit(false);
+            setInfoSaving(false);
+          };
+          const cancelInfoEdit = () => { setInfoForm({ staffName: customer.staffName, belong: customer.belong, customerName: customer.customerName }); setInfoErr(''); setInfoEdit(false); };
+          const updateNested = (tab, cat, field, val) => setData(prev => ({ ...prev, [tab]: { ...prev[tab], [cat]: { ...prev[tab][cat], [field]: val } } }));
+          const updateArrayItem = (tab, arrayName, index, field, val) => { const arr = [...data[tab][arrayName]]; arr[index] = { ...arr[index], [field]: val }; setData(prev => ({ ...prev, [tab]: { ...prev[tab], [arrayName]: arr } })); };
+          const updateList = (tab, listName, id, val) => setData(prev => ({ ...prev, [tab]: { ...prev[tab], [listName]: prev[tab][listName].map(item => item.id === id ? { ...item, note: val } : item) } }));
+          const handleSave = async () => {
+            setSaveMsg('保存中...');
+            const err = await onSave(customer.id, data);
+            if (err) { setSaveMsg('保存失敗 ❌ ' + err); } else { setSaveMsg('保存しました ✅'); }
+            setTimeout(() => setSaveMsg(''), 3000);
+          };
+          const th = "border border-slate-300 bg-slate-100 p-1 text-[10px] font-bold text-center";
+          const td = "border border-slate-300 p-1 text-[10px] min-h-[1.5rem]";
+          const wu = (v, unit) => { if (!v) return ''; const known = ['万円/月', '万円', '歳', '年', '時間', '分']; if (known.some(u => String(v).endsWith(u))) return v; return v + unit; };
+          const tabs = [
+            { key: 'flow', label: '商談フロー', color: 'indigo' },
+            { key: 'summary', label: 'カルテ一覧', color: 'emerald' },
+            { key: 'basic', label: '基本情報', color: 'blue' },
+            { key: 'general', label: '総合ヒアリング', color: 'blue' },
+            { key: 'land', label: '土地エリア精査', color: 'blue' },
+          ];
+          const tabColor = { indigo: 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50', emerald: 'text-emerald-600 border-b-2 border-emerald-600 bg-emerald-50/50', blue: 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/30' };
+
+          return (
+            <div className="min-h-screen bg-slate-100 py-4 px-4 font-sans">
+              <div className="max-w-5xl mx-auto">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-4">
+                  <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <button onClick={onBack} className="flex items-center gap-1.5 text-slate-600 hover:text-slate-800 font-bold text-sm border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-50 transition"><KIcBack /> 一覧へ戻る</button>
+                      {infoEdit ? (
+                        <div className="space-y-2">
+                          <div className="flex gap-2 flex-wrap items-center">
+                            <input value={infoForm.customerName} onChange={e => setInfoForm(p => ({...p, customerName: e.target.value}))} className="border border-slate-300 rounded-lg px-2 py-1 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 w-40" placeholder="お客様名" />
+                            <input value={infoForm.belong} onChange={e => setInfoForm(p => ({...p, belong: e.target.value}))} className="border border-slate-300 rounded-lg px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500 w-28" placeholder="拠点" />
+                            <input value={infoForm.staffName} onChange={e => setInfoForm(p => ({...p, staffName: e.target.value}))} className="border border-slate-300 rounded-lg px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500 w-28" placeholder="担当者名" />
+                          </div>
+                          {infoErr && <p className="text-red-500 text-xs">{infoErr}</p>}
+                          <div className="flex gap-2">
+                            <button onClick={handleSaveInfo} disabled={infoSaving} className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition">{infoSaving ? '保存中...' : '保存する'}</button>
+                            <button onClick={cancelInfoEdit} className="border border-slate-300 px-3 py-1 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 transition">キャンセル</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-xs text-slate-400">{customer.belong}　担当: {customer.staffName}</p>
+                          <div className="flex items-center gap-1.5">
+                            <h1 className="text-xl font-black text-slate-800">{customer.customerName} 様のカルテ</h1>
+                            <button onClick={() => { setInfoForm({ staffName: customer.staffName, belong: customer.belong, customerName: customer.customerName }); setInfoEdit(true); }} className="text-slate-400 hover:text-slate-600 transition p-1" title="基本情報を編集"><KIcEdit /></button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {saveMsg && <span className="text-green-600 font-bold text-sm bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">{saveMsg}</span>}
+                      <button onClick={handleSave} className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-emerald-700 transition shadow-md"><KIcSave /> 一時保存</button>
+                      <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-slate-700 transition shadow-md"><KIcPrint /> 印刷</button>
+                    </div>
+                  </div>
+                  <div className="flex border-t border-slate-100 overflow-x-auto bg-slate-50/50">
+                    {tabs.map(({ key, label, color }) => (
+                      <button key={key} onClick={() => setActiveTab(key)} className={`flex-1 min-w-[100px] py-3 text-xs font-bold ${activeTab === key ? tabColor[color] : 'text-slate-500 hover:text-slate-700'}`}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 商談フロー */}
+                {activeTab === 'flow' && (
+                  <div className="space-y-4">
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-slate-700 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-slate-700 font-black text-xs px-2 py-0.5 rounded">STEP 1</span><span className="font-black text-base">ヒアリングフェーズ</span><span className="text-slate-300 text-xs ml-2">― 各タブに沿って順番に聞く ―</span></div>
+                      <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {["① 現在のお住まい（エリア・賃貸 or 持家）","② 将来的にご入居予定の人数","③ お家づくりを考え始めたきっかけ","④ Gハウスを知っていただいたきっかけ","⑤ お土地について","⑥ お家について","⑦ ご入居予定時期"].map((t, i) => (
+                          <div key={i} className="flex items-center gap-3 bg-slate-50 rounded-lg px-4 py-3 border border-slate-200"><span className="w-7 h-7 rounded-full bg-slate-600 text-white flex items-center justify-center font-black text-xs flex-shrink-0">{i+1}</span><span className="font-bold text-slate-700 text-sm">{t}</span></div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="bg-indigo-700 text-white rounded-xl shadow-lg overflow-hidden">
+                      <div className="px-6 py-3 bg-indigo-900 flex items-center gap-2"><span className="bg-white text-indigo-900 font-black text-xs px-2 py-0.5 rounded">STEP 2</span><span className="font-black text-base">提案への入り口　― まずこれを聞く ―</span></div>
+                      <div className="p-6">
+                        <div className="text-center bg-white/10 rounded-xl p-5 mb-3"><p className="text-xl font-black tracking-wide leading-relaxed">「土地・建物、すべて理想が叶うとしたら</p><p className="text-2xl font-black text-yellow-300 mt-1">月々いくらまで出せますか？」</p></div>
+                        <div className="bg-red-500/80 rounded-lg px-4 py-2 text-sm font-bold text-center">⚠️ 「いくらが良いですか？」はNG ― 必ず <span className="underline">出す価値のある金額</span> を聞き出す</div>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-blue-600 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-blue-600 font-black text-xs px-2 py-0.5 rounded">STEP 3</span><span className="font-black text-base">図面提出 ＋ 資金試算</span></div>
+                      <div className="p-5 space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4"><p className="font-black text-blue-800 mb-2">📐 建物参考図面の提出</p><ul className="text-sm text-blue-700 space-y-1"><li>・ 理想に近い間取りを提示</li><li>・ ボリューム感を一緒に確認・共有</li><li>・ 坪数をもとに建物で資金計画試算</li></ul></div>
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-4"><p className="font-black text-green-800 mb-2">🗺️ 土地予算の試算</p><ul className="text-sm text-green-700 space-y-1"><li>・ 希望エリア ＋ 駅距離 ＋ 坪数をもとに</li><li>・ 土地予算を取って試算する</li><li>・ トータルの月々支払いを算出</li></ul></div>
+                        </div>
+                        <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3 text-center"><p className="font-black text-yellow-800 text-sm">「この金額を見て、どう思いますか？」← 必ず反応を確認する</p></div>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-emerald-600 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-emerald-600 font-black text-xs px-2 py-0.5 rounded">STEP 4</span><span className="font-black text-base">月々に落とし込む工夫の話</span></div>
+                      <div className="p-5">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">{['💰 頭金', '📅 ローン年数', '🎁 ボーナス払い', '🤝 援助'].map((item, i) => (<div key={i} className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center"><p className="font-black text-emerald-800 text-sm">{item}</p></div>))}</div>
+                        <div className="bg-slate-800 text-white rounded-lg p-4 mb-3"><p className="font-black text-yellow-300 mb-2">🔥 光熱費逆転現象を必ず見せる</p><p className="text-sm leading-relaxed">ローコストで <span className="text-yellow-300 font-bold">500〜1,000万円安く</span> ても、光熱費が <span className="text-red-400 font-bold">月2〜3万円</span> かかると…<br/>→ <span className="text-white font-black">35年で840〜1,260万円の差</span> が生まれ、<span className="text-yellow-300 font-bold">逆転する！</span></p></div>
+                        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center"><p className="font-black text-indigo-800">「Gハウスの方が <span className="text-indigo-600">家の質が高く</span>、月々の支払いも <span className="text-indigo-600">楽になる</span>」</p></div>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-orange-500 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-orange-500 font-black text-xs px-2 py-0.5 rounded">STEP 5</span><span className="font-black text-base">キャンペーン提示 ＋ 選択肢の広がりを見せる</span></div>
+                      <div className="p-5 space-y-3">
+                        <div className="bg-red-50 border-l-4 border-red-500 rounded-r-lg p-3"><p className="font-black text-red-700 text-sm">⚠️ 間違ってもすぐにキャンペーンを提示しない</p><p className="text-xs text-red-600 mt-1">Gハウスの価値を理解させた後で初めて提示する</p></div>
+                        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                          <p className="font-black text-orange-800 mb-2">例）500万円下げた結果を見せる</p>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">{[['土地予算に充当','200〜300万円'],['建物OPに充当','100万円'],['月々を下げる','様々な選択肢']].map(([t,s],i) => (<div key={i} className="bg-white border border-orange-200 rounded p-2 text-center text-sm"><p className="font-bold text-orange-700">{t}</p><p className="text-xs text-slate-500">{s}</p></div>))}</div>
+                        </div>
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-3"><p className="font-black text-green-800 text-sm">✅ 土地予算を少し増やして → 次回 いえプロ へバトンを渡す</p></div>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-slate-600 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-slate-600 font-black text-xs px-2 py-0.5 rounded">STEP 6</span><span className="font-black text-base">予算感が厳しい場合の対応</span></div>
+                      <div className="p-5">
+                        <p className="text-sm text-slate-600 mb-3 font-bold">「現状の予算だと、今のエリアは厳しい状態です。例えばこれはどうですか？」</p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">{[['🗾','土地エリアを変える'],['🏠','商品を変える'],['📏','建物坪数を工夫'],['💹','予算を上げる'],['💰','頭金を出す'],['🤝','援助を使う']].map(([ic,lb],i) => (<div key={i} className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-center gap-2"><span className="text-lg">{ic}</span><span className="text-sm font-bold text-slate-700">{lb}</span></div>))}</div>
+                        <div className="space-y-2">
+                          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800"><span className="font-black">全部譲れない人は追わない。</span><br/>「また一度ご検討いただき、変化があれば連絡ください 😊」でお別れ</div>
+                          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-sm text-indigo-800"><p className="font-black mb-1">整理すべき3択を明確に伝える：</p><p>🏠 <span className="font-bold">いい家</span> に住みたいのか？　🗾 <span className="font-bold">いい土地</span> に住みたいのか？</p><p className="mt-1">どちらも譲れないなら → <span className="font-black text-indigo-700">予算を上げるだけ</span></p></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-purple-600 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-purple-600 font-black text-xs px-2 py-0.5 rounded">STEP 7</span><span className="font-black text-base">次回アポイントへ ― スケジュール全体像を共有</span></div>
+                      <div className="p-5">
+                        <div className="space-y-2">
+                          {[{icon:'📖',title:'スタイルブックをもとにオプション金額の整理'},{icon:'🗾',title:'希望エリアの土地物件について共有'},{icon:'🏦',title:'事前審査の依頼（できる人はイオン銀行などで）',note:'次回までにURLのみ送付してあげる'}].map((item, i) => (
+                            <div key={i} className="bg-purple-50 border border-purple-200 rounded-lg p-3"><p className="font-black text-purple-800 text-sm">{item.icon} {item.title}</p>{item.note && <p className="text-xs text-purple-600 mt-1">{item.note}</p>}</div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* カルテ一覧（印刷用） */}
+                {activeTab === 'summary' && (
+                  <div className="bg-white p-6 shadow-2xl rounded-sm border border-slate-300 overflow-auto">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                      <KInputField label="契約目標日" value={data.sheetHeader.targetDate} onChange={(v) => setData(p => ({...p, sheetHeader: {...p.sheetHeader, targetDate: v}}))} />
+                      <KInputField label="ランク" value={data.sheetHeader.rank} onChange={(v) => setData(p => ({...p, sheetHeader: {...p.sheetHeader, rank: v}}))} />
+                    </div>
+                    <div className="text-[11px] border border-black">
+                      <div className="flex justify-between items-center bg-slate-800 text-white px-4 py-2">
+                        <div className="font-black text-base tracking-widest">🧭 お客様情報カルテ　ver2.3</div>
+                        <div className="text-[10px] text-right space-y-0.5">
+                          <div>所属: <span className="font-bold">{customer.belong}</span>　担当: <span className="font-bold">{customer.staffName}</span></div>
+                          <div>契約目標日: <span className="font-bold">{data.sheetHeader.targetDate}</span>　ランク: <span className="font-bold">{data.sheetHeader.rank}</span>　記入日: {new Date().toLocaleDateString()}</div>
+                        </div>
+                      </div>
+                      <div className="bg-indigo-50 px-4 py-2 border-b border-black text-center"><span className="text-lg font-black text-slate-800 tracking-widest">{customer.customerName || '　　　　'} 様</span></div>
+                      <div className="border-b border-black"><div className={`${th} bg-blue-700 text-white text-xs py-1`}>A. 基本情報</div></div>
+                      <table className="w-full border-collapse border-b border-black">
+                        <thead><tr><th className={`${th} w-16`}></th><th className={th}>氏名（フリガナ）</th><th className={th}>年齢（歳）</th><th className={th}>連絡先</th><th className={th}>年収（万円）</th><th className={th}>勤続年数（年）</th></tr></thead>
+                        <tbody>
+                          <tr><td className={th}>本人</td><td className={td}>{data.basic.rep.name}</td><td className={td}>{wu(data.basic.rep.age,'歳')}</td><td className={td}>{data.basic.rep.contact}</td><td className={td}>{wu(data.basic.rep.income,'万円')}</td><td className={td}>{wu(data.basic.rep.years,'年')}</td></tr>
+                          <tr><td className={th}>配偶者</td><td className={td}>{data.basic.partner.name}</td><td className={td}>{wu(data.basic.partner.age,'歳')}</td><td className={td}>―</td><td className={td}>{wu(data.basic.partner.income,'万円')}</td><td className={td}>{wu(data.basic.partner.years,'年')}</td></tr>
+                        </tbody>
+                      </table>
+                      <div className="grid grid-cols-12 border-b border-black"><div className={`${th} col-span-2`}>現住所</div><div className={`${td} col-span-10`}>{data.basic.rep.address}</div></div>
+                      <div className="border-b border-black">
+                        <div className={`${th} bg-slate-200`}>家族構成（父母・義父母）</div>
+                        <table className="w-full border-collapse">
+                          <thead><tr><th className={th}>続柄</th><th className={th}>年齢</th><th className={th}>職業</th><th className={th}>年収</th><th className={th}>現在同居</th><th className={th}>将来同居</th></tr></thead>
+                          <tbody>{data.basic.familyMembers.map((m, i) => (<tr key={i}><td className={`${th} font-bold`}>{m.role}</td><td className={td}>{wu(m.age,'歳')}</td><td className={td}>{m.job}</td><td className={td}>{wu(m.income,'万円')}</td><td className={td}>{m.coLiveNow}</td><td className={td}>{m.coLiveFuture}</td></tr>))}</tbody>
+                        </table>
+                      </div>
+                      <div className="border-b border-black"><div className={`${th} bg-blue-700 text-white text-xs py-1`}>B. 総合ヒアリング</div></div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【生活情報】</div>
+                        <div className={`${th} col-span-2`}>住居形態</div><div className={`${td} col-span-4`}>{data.general.life.housingType}</div>
+                        <div className={`${th} col-span-2`}>最寄り駅（時間）</div><div className={`${td} col-span-4`}>{data.general.life.station}{data.general.life.stationTime ? '　' + wu(data.general.life.stationTime,'分') : ''}</div>
+                        <div className={`${th} col-span-2`}>家賃</div><div className={`${td} col-span-2`}>{wu(data.general.life.rent,'万円/月')}</div>
+                        <div className={`${th} col-span-2`}>駐車場</div><div className={`${td} col-span-2`}>{wu(data.general.life.parking,'万円/月')}</div>
+                        <div className={`${th} col-span-2`}>その他費用</div><div className={`${td} col-span-2`}>{wu(data.general.life.otherCost,'万円/月')}</div>
+                        <div className={`${th} col-span-2`}>家族構成</div><div className={`${td} col-span-4`}>{data.general.life.family}</div>
+                        <div className={`${th} col-span-2`}>実家場所</div><div className={`${td} col-span-4`}>{data.general.life.homeLoc}</div>
+                        <div className={`${th} col-span-2`}>趣味</div><div className={`${td} col-span-10`}>{data.general.life.hobby}</div>
+                        <div className={`${th} col-span-2 h-12`}>家づくりの理由・きっかけ</div><div className={`${td} col-span-10 h-12 whitespace-pre-wrap`}>{data.general.life.reason}</div>
+                        <div className={`${th} col-span-2 h-10`}>Gハウスを知ったきっかけ</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.life.trigger}</div>
+                        <div className={`${th} col-span-2 h-10`}>Gハウスへの関心事</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.life.interest}</div>
+                        <div className={`${th} col-span-2 h-10`}>検討メーカー・印象</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.life.currentMaker}</div>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【土地】</div>
+                        <div className={`${th} col-span-2`}>土地探しの有無</div><div className={`${td} col-span-4`}>{data.general.land.hasLand}</div>
+                        <div className={`${th} col-span-2`}>希望エリアと理由</div><div className={`${td} col-span-4`}>{data.general.land.areaReason}</div>
+                        <div className={`${th} col-span-2`}>通勤先・方法・距離感</div><div className={`${td} col-span-4`}>{data.general.land.commuteGoal}</div>
+                        <div className={`${th} col-span-2`}>実家との距離・関係</div><div className={`${td} col-span-4`}>{data.general.land.parentsRel}</div>
+                        <div className={`${th} col-span-2`}>駅距離への考え</div><div className={`${td} col-span-4`}>{data.general.land.stationThought}</div>
+                        <div className={`${th} col-span-2`}>今の住まいを選んだ理由</div><div className={`${td} col-span-4`}>{data.general.land.currentHomeReason}</div>
+                        <div className={`${th} col-span-2`}>土地予算</div><div className={`${td} col-span-10`}>{wu(data.general.land.landBudget,'万円')}</div>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【建物】</div>
+                        <div className={`${th} col-span-2`}>階数</div><div className={`${td} col-span-2`}>{data.general.building.floors}</div>
+                        <div className={`${th} col-span-2`}>部屋数・用途</div><div className={`${td} col-span-6`}>{data.general.building.rooms}</div>
+                        <div className={`${th} col-span-2 h-10`}>追加希望部屋と理由</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.building.extraRooms}</div>
+                        <div className={`${th} col-span-2 h-10`}>間取りのこだわり</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.building.layoutPoint}</div>
+                        <div className={`${th} col-span-2 h-10`}>やりたいこと・理由</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.building.goals}</div>
+                        <div className={`${th} col-span-2`}>車台数・優先度</div><div className={`${td} col-span-4`}>{data.general.building.cars}</div>
+                        <div className={`${th} col-span-2`}>庭の希望</div><div className={`${td} col-span-4`}>{data.general.building.garden}</div>
+                        <div className={`${th} col-span-2`}>建物予算</div><div className={`${td} col-span-10`}>{wu(data.general.building.buildingBudget,'万円')}</div>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【資金計画】</div>
+                        <div className={`${th} col-span-2`}>ご主人年収</div><div className={`${td} col-span-2`}>{wu(data.general.money.husbandIncome,'万円')}</div>
+                        <div className={`${th} col-span-2`}>奥様年収</div><div className={`${td} col-span-2`}>{wu(data.general.money.wifeIncome,'万円')}</div>
+                        <div className={`${th} col-span-2`}>総予算</div><div className={`${td} col-span-2`}>{wu(data.general.money.totalBudget,'万円')}</div>
+                        <div className={`${th} col-span-2`}>頭金</div><div className={`${td} col-span-2`}>{wu(data.general.money.downPayment,'万円')}</div>
+                        <div className={`${th} col-span-2`}>貯金額</div><div className={`${td} col-span-2`}>{wu(data.general.money.savings,'万円')}</div>
+                        <div className={`${th} col-span-2`}>援助金</div><div className={`${td} col-span-2`}>{wu(data.general.money.aid,'万円')}</div>
+                        <div className={`${th} col-span-2`}>月々希望額</div><div className={`${td} col-span-10`}>{wu(data.general.money.monthlyHope,'万円/月')}</div>
+                        <div className={`${th} col-span-2 h-10`}>既存借入</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.money.existingLoan}</div>
+                        <div className={`${th} col-span-2 h-10`}>理想の月々支払いと理由</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.money.idealPayment}</div>
+                        <div className={`${th} col-span-2 h-10`}>家賃との差への考え</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.money.rentGap}</div>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【入居時期 / 競合】</div>
+                        <div className={`${th} col-span-2 h-10`}>希望入居時期・理由</div><div className={`${td} col-span-4 h-10 whitespace-pre-wrap`}>{data.general.time.period}</div>
+                        <div className={`${th} col-span-2`}>入居リミット</div><div className={`${td} col-span-4`}>{data.general.time.limit}</div>
+                        <div className={`${th} col-span-2`}>検討他社名</div><div className={`${td} col-span-10`}>{data.general.rival.name}</div>
+                        <div className={`${th} col-span-2 h-10`}>他社の気に入っている点</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.rival.pros}</div>
+                        <div className={`${th} col-span-2 h-10`}>他社への不満点</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.rival.cons}</div>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【テスクロ】</div>
+                        <div className={`${th} col-span-2`}>有無</div><div className={`${td} col-span-10`}>{data.general.testClose.hasTest}</div>
+                        <div className={`${th} col-span-2 h-10`}>テスクロ結果</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.testClose.result}</div>
+                        <div className={`${th} col-span-2 h-10`}>Gハウスへの不満・不安</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.testClose.complaints}</div>
+                        <div className={`${th} col-span-2 h-10`}>次回アポイント</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.testClose.nextDetail}</div>
+                      </div>
+                      <div className="border-b border-black"><div className={`${th} bg-blue-700 text-white text-xs py-1`}>C. 土地エリア精査</div></div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-2`}>希望エリア</div><div className={`${td} col-span-10`}>{data.landDetail.area.target}</div>
+                        <div className={`${th} col-span-2 h-10`}>なぜそのエリア？</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.landDetail.area.whyDeep}</div>
+                      </div>
+                      <div className="border-b border-black">
+                        <div className={`${th} bg-slate-200`}>通勤事情</div>
+                        <table className="w-full border-collapse">
+                          <thead><tr><th className={th}></th><th className={th}>通勤先</th><th className={th}>所要時間</th><th className={th}>方法</th><th className={th}>通勤への印象</th><th className={th}>次はどこまで許容？</th></tr></thead>
+                          <tbody>
+                            <tr><td className={`${th} text-blue-700`}>ご主人様</td><td className={td}>{data.landDetail.husband.dest}</td><td className={td}>{wu(data.landDetail.husband.time,'分')}</td><td className={td}>{data.landDetail.husband.method}</td><td className={td}>{data.landDetail.husband.feeling}</td><td className={td}>{wu(data.landDetail.husband.limit,'分')}</td></tr>
+                            <tr><td className={`${th} text-pink-600`}>奥様</td><td className={td}>{data.landDetail.wife.dest}</td><td className={td}>{wu(data.landDetail.wife.time,'分')}</td><td className={td}>{data.landDetail.wife.method}</td><td className={td}>{data.landDetail.wife.feeling}</td><td className={td}>{wu(data.landDetail.wife.limit,'分')}</td></tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>駅距離の価値観・実家との関係</div>
+                        <div className={`${th} col-span-2`}>駅距離を気にする？</div><div className={`${td} col-span-4`}>{data.landDetail.station.importance}</div>
+                        <div className={`${th} col-span-2`}>今は何分？</div><div className={`${td} col-span-4`}>{wu(data.landDetail.station.current,'分')}</div>
+                        <div className={`${th} col-span-2 h-10`}>時間の根拠は？</div><div className={`${td} col-span-10 h-10`}>{data.landDetail.station.logic}</div>
+                        <div className={`${th} col-span-2`}>実家の場所</div><div className={`${td} col-span-4`}>{data.landDetail.parents.loc}</div>
+                        <div className={`${th} col-span-2`}>実家距離を気にする？</div><div className={`${td} col-span-4`}>{data.landDetail.parents.importance}</div>
+                        <div className={`${th} col-span-2`}>実家への行き方希望</div><div className={`${td} col-span-10`}>{data.landDetail.parents.access}</div>
+                      </div>
+                      <div className="grid grid-cols-12">
+                        <div className="col-span-6 border-r border-black">
+                          <div className={`${th} bg-slate-200`}>土地への優先順位</div>
+                          <table className="w-full border-collapse"><thead><tr><th className={th}>項目</th><th className={th}>メモ</th></tr></thead><tbody>{data.landDetail.priorities.map((p,i) => (<tr key={p.id} className="border-t border-slate-200"><td className={`${th} text-left pl-2 font-medium`}>{i+1}. {p.label}</td><td className={td}>{p.note}</td></tr>))}</tbody></table>
+                        </div>
+                        <div className="col-span-6">
+                          <div className={`${th} bg-red-100 text-red-800`}>土地のNG条件</div>
+                          <table className="w-full border-collapse"><thead><tr><th className={th}>項目</th><th className={th}>詳細メモ</th></tr></thead><tbody>{data.landDetail.ng.map((n) => (<tr key={n.id} className="border-t border-slate-200"><td className={`${th} text-left pl-2 font-medium text-red-700`}>{n.label}</td><td className={td}>{n.note}</td></tr>))}</tbody></table>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 基本情報 */}
+                {activeTab === 'basic' && (
+                  <div className="space-y-6">
+                    <KSection title="🧑‍🤝‍🧑 代表者様・パートナー様" icon={KIcUser}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <KInputField label="代表者 氏名（フリガナ）" value={data.basic.rep.name} onChange={(v) => updateNested('basic','rep','name',v)} />
+                        <KUnitInput label="代表者 年齢" units={['歳']} value={data.basic.rep.age} onChange={(v) => updateNested('basic','rep','age',v)} />
+                        <KInputField label="連絡先" value={data.basic.rep.contact} onChange={(v) => updateNested('basic','rep','contact',v)} />
+                        <KInputField label="住所・郵便番号" value={data.basic.rep.address} onChange={(v) => updateNested('basic','rep','address',v)} />
+                        <KUnitInput label="代表者 年収" units={['万円']} value={data.basic.rep.income} onChange={(v) => updateNested('basic','rep','income',v)} />
+                        <KUnitInput label="勤続年数" units={['年']} value={data.basic.rep.years} onChange={(v) => updateNested('basic','rep','years',v)} />
+                        <div className="col-span-2 border-t my-2" />
+                        <KInputField label="パートナー 氏名（フリガナ）" value={data.basic.partner.name} onChange={(v) => updateNested('basic','partner','name',v)} />
+                        <KUnitInput label="パートナー 年齢" units={['歳']} value={data.basic.partner.age} onChange={(v) => updateNested('basic','partner','age',v)} />
+                        <KUnitInput label="パートナー 年収" units={['万円']} value={data.basic.partner.income} onChange={(v) => updateNested('basic','partner','income',v)} />
+                        <KUnitInput label="パートナー 勤続年数" units={['年']} value={data.basic.partner.years} onChange={(v) => updateNested('basic','partner','years',v)} />
+                      </div>
+                    </KSection>
+                    <KSection title="家族構成（父母・義父母など）" icon={KIcUser}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {data.basic.familyMembers.map((m, i) => (
+                          <div key={i} className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                            <h4 className="font-bold mb-2 text-indigo-600">{m.role}</h4>
+                            <div className="grid grid-cols-2 gap-2">
+                              <KUnitInput label="年齢" units={['歳']} value={m.age} onChange={(v) => updateArrayItem('basic','familyMembers',i,'age',v)} />
+                              <KInputField label="職業" value={m.job} onChange={(v) => updateArrayItem('basic','familyMembers',i,'job',v)} />
+                              <KUnitInput label="年収" units={['万円']} value={m.income} onChange={(v) => updateArrayItem('basic','familyMembers',i,'income',v)} />
+                              <KInputField label="同居（現）" value={m.coLiveNow} onChange={(v) => updateArrayItem('basic','familyMembers',i,'coLiveNow',v)} />
+                              <KInputField label="同居（将来）" value={m.coLiveFuture} onChange={(v) => updateArrayItem('basic','familyMembers',i,'coLiveFuture',v)} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </KSection>
+                  </div>
+                )}
+
+                {/* 総合ヒアリング */}
+                {activeTab === 'general' && (
+                  <div className="space-y-6">
+                    <KSection title="🧑‍🤝‍🧑 生活情報" icon={KIcHome}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <KInputField label="最寄り駅" value={data.general.life.station} onChange={(v) => updateNested('general','life','station',v)} />
+                        <KUnitInput label="最寄り駅までの時間" units={['分', '時間']} value={data.general.life.stationTime} onChange={(v) => updateNested('general','life','stationTime',v)} />
+                        <KInputField label="現在の住居形態" value={data.general.life.housingType} onChange={(v) => updateNested('general','life','housingType',v)} />
+                        <KInputField label="家族構成（将来想定含む）" value={data.general.life.family} onChange={(v) => updateNested('general','life','family',v)} />
+                        <KUnitInput label="家賃" units={['万円/月']} value={data.general.life.rent} onChange={(v) => updateNested('general','life','rent',v)} />
+                        <KUnitInput label="駐車場代" units={['万円/月']} value={data.general.life.parking} onChange={(v) => updateNested('general','life','parking',v)} />
+                        <KUnitInput label="その他固定費" units={['万円/月']} value={data.general.life.otherCost} onChange={(v) => updateNested('general','life','otherCost',v)} />
+                        <KInputField label="実家場所" value={data.general.life.homeLoc} onChange={(v) => updateNested('general','life','homeLoc',v)} />
+                        <KInputField label="趣味" value={data.general.life.hobby} onChange={(v) => updateNested('general','life','hobby',v)} />
+                        <div />
+                        <KTextAreaField label="家づくりを考え始めた理由" value={data.general.life.reason} onChange={(v) => updateNested('general','life','reason',v)} />
+                        <KTextAreaField label="Gハウスを知ったきっかけ・来場動機" value={data.general.life.trigger} onChange={(v) => updateNested('general','life','trigger',v)} />
+                        <KTextAreaField label="Gハウスで関心のあること" value={data.general.life.interest} onChange={(v) => updateNested('general','life','interest',v)} />
+                        <KTextAreaField label="現在の検討メーカー・印象" value={data.general.life.currentMaker} onChange={(v) => updateNested('general','life','currentMaker',v)} />
+                      </div>
+                    </KSection>
+                    <KSection title="🏠【物】土地・建物" icon={KIcMap}>
+                      <h3 className="font-bold text-slate-700 mb-3 border-l-4 border-blue-500 pl-2">≪土地≫</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 mb-6">
+                        <KInputField label="土地探しの有無" value={data.general.land.hasLand} onChange={(v) => updateNested('general','land','hasLand',v)} />
+                        <KInputField label="希望エリアと理由" value={data.general.land.areaReason} onChange={(v) => updateNested('general','land','areaReason',v)} />
+                        <KInputField label="通勤先・方法・希望距離感" value={data.general.land.commuteGoal} onChange={(v) => updateNested('general','land','commuteGoal',v)} />
+                        <KInputField label="実家との距離・関係性" value={data.general.land.parentsRel} onChange={(v) => updateNested('general','land','parentsRel',v)} />
+                        <KInputField label="駅までの距離や移動手段への考え" value={data.general.land.stationThought} onChange={(v) => updateNested('general','land','stationThought',v)} />
+                        <KInputField label="今の住まいを選んだ理由" value={data.general.land.currentHomeReason} onChange={(v) => updateNested('general','land','currentHomeReason',v)} />
+                        <KUnitInput label="土地予算" units={['万円']} value={data.general.land.landBudget} onChange={(v) => updateNested('general','land','landBudget',v)} />
+                      </div>
+                      <h3 className="font-bold text-slate-700 mb-3 border-l-4 border-indigo-500 pl-2">≪建物≫</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <KInputField label="階数" value={data.general.building.floors} onChange={(v) => updateNested('general','building','floors',v)} />
+                        <KInputField label="部屋数と用途" value={data.general.building.rooms} onChange={(v) => updateNested('general','building','rooms',v)} />
+                        <KTextAreaField label="希望する追加部屋（和室・WIC・書斎など）と理由" value={data.general.building.extraRooms} onChange={(v) => updateNested('general','building','extraRooms',v)} />
+                        <KTextAreaField label="間取りのこだわり・困っている点" value={data.general.building.layoutPoint} onChange={(v) => updateNested('general','building','layoutPoint',v)} />
+                        <KTextAreaField label="やりたいこと・理由" value={data.general.building.goals} onChange={(v) => updateNested('general','building','goals',v)} />
+                        <KInputField label="車台数と理由" value={data.general.building.cars} onChange={(v) => updateNested('general','building','cars',v)} />
+                        <KInputField label="庭の希望" value={data.general.building.garden} onChange={(v) => updateNested('general','building','garden',v)} />
+                        <KUnitInput label="建物予算" units={['万円']} value={data.general.building.buildingBudget} onChange={(v) => updateNested('general','building','buildingBudget',v)} />
+                      </div>
+                    </KSection>
+                    <KSection title="💴【金】資金計画" icon={KIcCoins}>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4">
+                        <KUnitInput label="ご主人年収" units={['万円']} value={data.general.money.husbandIncome} onChange={(v) => updateNested('general','money','husbandIncome',v)} />
+                        <KUnitInput label="奥様年収" units={['万円']} value={data.general.money.wifeIncome} onChange={(v) => updateNested('general','money','wifeIncome',v)} />
+                        <KUnitInput label="総予算" units={['万円']} value={data.general.money.totalBudget} onChange={(v) => updateNested('general','money','totalBudget',v)} />
+                        <KUnitInput label="頭金予定額" units={['万円']} value={data.general.money.downPayment} onChange={(v) => updateNested('general','money','downPayment',v)} />
+                        <KUnitInput label="貯金額" units={['万円']} value={data.general.money.savings} onChange={(v) => updateNested('general','money','savings',v)} />
+                        <KUnitInput label="援助金" units={['万円']} value={data.general.money.aid} onChange={(v) => updateNested('general','money','aid',v)} />
+                        <KUnitInput label="月々希望額" units={['万円/月']} value={data.general.money.monthlyHope} onChange={(v) => updateNested('general','money','monthlyHope',v)} />
+                      </div>
+                      <KTextAreaField label="既存借入（残額・月々・ボーナス・年間）" value={data.general.money.existingLoan} onChange={(v) => updateNested('general','money','existingLoan',v)} />
+                      <KTextAreaField label="理想の月々支払い額とその理由" value={data.general.money.idealPayment} onChange={(v) => updateNested('general','money','idealPayment',v)} />
+                      <KTextAreaField label="現在の家賃との差への考え" value={data.general.money.rentGap} onChange={(v) => updateNested('general','money','rentGap',v)} />
+                    </KSection>
+                    <KSection title="⏰【時】希望時期 / ⚔【敵】競合" icon={KIcClock}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <KTextAreaField label="希望入居時期と理由" value={data.general.time.period} onChange={(v) => updateNested('general','time','period',v)} />
+                        <KInputField label="入居リミットの有無" value={data.general.time.limit} onChange={(v) => updateNested('general','time','limit',v)} />
+                        <div className="col-span-2 border-t my-2" />
+                        <KInputField label="検討他社名" value={data.general.rival.name} onChange={(v) => updateNested('general','rival','name',v)} />
+                        <div />
+                        <KTextAreaField label="気に入っている点" value={data.general.rival.pros} onChange={(v) => updateNested('general','rival','pros',v)} />
+                        <KTextAreaField label="不満点" value={data.general.rival.cons} onChange={(v) => updateNested('general','rival','cons',v)} />
+                      </div>
+                    </KSection>
+                    <KSection title="🧪【テスクロ】" icon={KIcFlask}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <KInputField label="有無" value={data.general.testClose.hasTest} onChange={(v) => updateNested('general','testClose','hasTest',v)} />
+                        <div />
+                        <KTextAreaField label="テスクロ結果" value={data.general.testClose.result} onChange={(v) => updateNested('general','testClose','result',v)} />
+                        <KTextAreaField label="Gハウスへの不満点・不安点" value={data.general.testClose.complaints} onChange={(v) => updateNested('general','testClose','complaints',v)} />
+                        <KTextAreaField label="次回アポイント日時・内容" value={data.general.testClose.nextDetail} onChange={(v) => updateNested('general','testClose','nextDetail',v)} />
+                      </div>
+                    </KSection>
+                  </div>
+                )}
+
+                {/* 土地エリア精査 */}
+                {activeTab === 'land' && (
+                  <div className="space-y-6">
+                    <KSection title="【土地エリア 精査ヒアリング】" icon={KIcMap}>
+                      <KInputField label="希望エリア" value={data.landDetail.area.target} onChange={(v) => updateNested('landDetail','area','target',v)} />
+                      <KTextAreaField label="なぜ？深く聞く" value={data.landDetail.area.whyDeep} onChange={(v) => updateNested('landDetail','area','whyDeep',v)} />
+                    </KSection>
+                    <KSection title="通勤事情 ※夫婦それぞれ聞く" icon={KIcTrain}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-3">
+                          <h4 className="font-bold text-blue-600 border-b pb-1">ご主人様</h4>
+                          <KInputField label="通勤先" value={data.landDetail.husband.dest} onChange={(v) => updateNested('landDetail','husband','dest',v)} />
+                          <KUnitInput label="所要時間" units={['分', '時間']} value={data.landDetail.husband.time} onChange={(v) => updateNested('landDetail','husband','time',v)} />
+                          <KInputField label="方法（電車・車など）" value={data.landDetail.husband.method} onChange={(v) => updateNested('landDetail','husband','method',v)} />
+                          <KInputField label="通勤への印象" value={data.landDetail.husband.feeling} onChange={(v) => updateNested('landDetail','husband','feeling',v)} />
+                          <KUnitInput label="次はどれぐらいならいける？" units={['分', '時間']} value={data.landDetail.husband.limit} onChange={(v) => updateNested('landDetail','husband','limit',v)} />
+                        </div>
+                        <div className="space-y-3">
+                          <h4 className="font-bold text-pink-600 border-b pb-1">奥様</h4>
+                          <KInputField label="通勤先" value={data.landDetail.wife.dest} onChange={(v) => updateNested('landDetail','wife','dest',v)} />
+                          <KUnitInput label="所要時間" units={['分', '時間']} value={data.landDetail.wife.time} onChange={(v) => updateNested('landDetail','wife','time',v)} />
+                          <KInputField label="方法（電車・車など）" value={data.landDetail.wife.method} onChange={(v) => updateNested('landDetail','wife','method',v)} />
+                          <KInputField label="通勤への印象" value={data.landDetail.wife.feeling} onChange={(v) => updateNested('landDetail','wife','feeling',v)} />
+                          <KUnitInput label="次はどれぐらいならいける？" units={['分', '時間']} value={data.landDetail.wife.limit} onChange={(v) => updateNested('landDetail','wife','limit',v)} />
+                        </div>
+                      </div>
+                    </KSection>
+                    <KSection title="駅距離・実家・優先順位" icon={KIcHeart}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 mb-6">
+                        <div className="space-y-3">
+                          <h4 className="font-bold text-slate-700">駅距離の価値観</h4>
+                          <KInputField label="駅までの距離気にする？" value={data.landDetail.station.importance} onChange={(v) => updateNested('landDetail','station','importance',v)} />
+                          <KInputField label="その時間の根拠は？" value={data.landDetail.station.logic} onChange={(v) => updateNested('landDetail','station','logic',v)} />
+                          <KUnitInput label="今は何分？" units={['分', '時間']} value={data.landDetail.station.current} onChange={(v) => updateNested('landDetail','station','current',v)} />
+                        </div>
+                        <div className="space-y-3">
+                          <h4 className="font-bold text-slate-700">実家との関係</h4>
+                          <KInputField label="実家は？" value={data.landDetail.parents.loc} onChange={(v) => updateNested('landDetail','parents','loc',v)} />
+                          <KInputField label="実家までの距離気にする？" value={data.landDetail.parents.importance} onChange={(v) => updateNested('landDetail','parents','importance',v)} />
+                          <KInputField label="どうやって行けたらいい？" value={data.landDetail.parents.access} onChange={(v) => updateNested('landDetail','parents','access',v)} />
+                        </div>
+                      </div>
+                      <h4 className="font-bold text-slate-700 mb-2">土地に対して求めること（優先順位）</h4>
+                      <table className="w-full text-xs border border-slate-200 rounded-lg overflow-hidden mb-6">
+                        <thead className="bg-slate-50 border-b"><tr><th className="p-2 text-left">項目</th><th className="p-2 text-left">メモ</th></tr></thead>
+                        <tbody className="divide-y">
+                          {data.landDetail.priorities.map(p => (
+                            <tr key={p.id}><td className="p-2 font-medium w-48">{p.label}</td><td className="p-1"><input className="w-full p-1 outline-none bg-transparent" value={p.note} onChange={e => updateList('landDetail','priorities',p.id,e.target.value)} /></td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <h4 className="font-bold text-red-700 mb-2">土地に対するNG</h4>
+                      <div className="grid grid-cols-1 gap-2">
+                        {data.landDetail.ng.map(n => (
+                          <div key={n.id} className="flex items-center gap-4 bg-red-50 p-2 rounded border border-red-100">
+                            <span className="w-56 font-bold text-red-900 text-xs">{n.label}</span>
+                            <input className="flex-1 text-xs p-1 border rounded" placeholder="詳細メモ" value={n.note} onChange={e => updateList('landDetail','ng',n.id,e.target.value)} />
+                          </div>
+                        ))}
+                      </div>
+                    </KSection>
+                  </div>
+                )}
+
+                <footer className="mt-8 text-center text-slate-400 text-[10px] pb-6">
+                  <p>© G-House Internal Sales System | Version Final</p>
+                </footer>
+              </div>
+            </div>
+          );
+        };
+
+        // --- ルートカルテアプリ ---
+        const KarteApp = () => {
+          const [screen, setScreen]       = useState('list');
+          const [customers, setCustomers] = useState([]);
+          const [branches, setBranches]   = useState([]);
+          const [currentId, setCurrentId] = useState(null);
+          const [showNewModal, setShowNewModal] = useState(false);
+          const [dbLoading, setDbLoading] = useState(false);
+
+          useEffect(() => {
+            loadKarteCustomers();
+            loadKarteBranches();
+          }, []);
+
+          const fromDB = (key, val) => ({
+            id: key, staffName: val.staffName || '', belong: val.belong || '',
+            customerName: val.customerName || '',
+            createdAt: val.createdAt || new Date().toISOString(),
+            updatedAt: val.updatedAt || new Date().toISOString(),
+            karteData: val.karteData || emptyKarteData(),
+          });
+
+          const loadKarteCustomers = async () => {
+            setDbLoading(true);
+            const snap = await database.ref('karte/customers').once('value');
+            if (snap.exists()) {
+              const arr = [];
+              snap.forEach(child => arr.push(fromDB(child.key, child.val())));
+              arr.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+              setCustomers(arr);
+            } else { setCustomers([]); }
+            setDbLoading(false);
+          };
+
+          const loadKarteBranches = async () => {
+            const snap = await database.ref('karte/branches').once('value');
+            if (snap.exists()) {
+              const arr = [];
+              snap.forEach(child => arr.push({ id: child.key, ...child.val() }));
+              arr.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+              setBranches(arr);
+            } else { setBranches([]); }
+          };
+
+          const handleAddBranch = async (name) => {
+            try {
+              const now = new Date().toISOString();
+              const ref = await database.ref('karte/branches').push({ name, createdAt: now });
+              setBranches(prev => [...prev, { id: ref.key, name, createdAt: now }]);
+              return null;
+            } catch (e) { return e.message; }
+          };
+
+          const handleDeleteBranch = async (id) => {
+            await database.ref('karte/branches/' + id).remove();
+            setBranches(prev => prev.filter(b => b.id !== id));
+          };
+
+          const handleCreate = async ({ staffName, belong, customerName }) => {
+            try {
+              const now = new Date().toISOString();
+              const ref = await database.ref('karte/customers').push({ staffName, belong, customerName, karteData: emptyKarteData(), createdAt: now, updatedAt: now });
+              const newCustomer = { id: ref.key, staffName, belong, customerName, karteData: emptyKarteData(), createdAt: now, updatedAt: now };
+              setCustomers(prev => [newCustomer, ...prev]);
+              setCurrentId(ref.key);
+              setShowNewModal(false);
+              setScreen('edit');
+              return null;
+            } catch (e) { return e.message; }
+          };
+
+          const handleEdit = (id) => { setCurrentId(id); setScreen('edit'); };
+
+          const handleSave = async (id, karteData) => {
+            try {
+              const updatedAt = new Date().toISOString();
+              await database.ref('karte/customers/' + id).update({ karteData, updatedAt });
+              setCustomers(prev => prev.map(c => c.id === id ? { ...c, karteData, updatedAt } : c));
+              return null;
+            } catch (e) { return e.message; }
+          };
+
+          const handleDelete = async (id) => {
+            await database.ref('karte/customers/' + id).remove();
+            setCustomers(prev => prev.filter(c => c.id !== id));
+          };
+
+          const handleUpdateInfo = async (id, { staffName, belong, customerName }) => {
+            try {
+              const updatedAt = new Date().toISOString();
+              await database.ref('karte/customers/' + id).update({ staffName, belong, customerName, updatedAt });
+              setCustomers(prev => prev.map(c => c.id === id ? { ...c, staffName, belong, customerName, updatedAt } : c));
+              return null;
+            } catch (e) { return e.message; }
+          };
+
+          const handleBack = () => { setScreen('list'); setCurrentId(null); };
+          const currentCustomer = customers.find(c => c.id === currentId);
+
+          return (
+            <>
+              {showNewModal && <KNewCustomerModal onClose={() => setShowNewModal(false)} onCreate={handleCreate} />}
+              {screen === 'list' && <KCustomerList customers={customers} onNew={() => setShowNewModal(true)} onEdit={handleEdit} onDelete={handleDelete} dbLoading={dbLoading} branches={branches} onAddBranch={handleAddBranch} onDeleteBranch={handleDeleteBranch} />}
+              {screen === 'edit' && currentCustomer && <KKarteEditor customer={currentCustomer} onBack={handleBack} onSave={handleSave} onUpdateInfo={handleUpdateInfo} />}
+            </>
+          );
+        };
+
+        // ==========================================
         const UnifiedApp = () => {
           const [currentView, setCurrentView] = useState('home');
           const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -6740,6 +7631,10 @@
                              {view === 'home' ? 'ホーム' : view === 'dashboard' ? 'ダッシュボード' : view === 'sales' ? '営業育成' : view === 'flow' ? '営業フロー' : view === 'bank' ? '各種銀行' : view === 'debut' ? 'デビュー研修' : view === 'stockcon' ? 'ストコン情報' : 'スケジュール'}
                            </button>
                        ))}
+                       <button onClick={() => setCurrentView('karte')} className={`ml-2 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-1.5 transition-all shadow-sm ${currentView === 'karte' ? 'bg-teal-600 text-white shadow-md scale-105' : 'bg-teal-500 text-white hover:bg-teal-600 hover:shadow-md'}`}>
+                           <LucideIcon name="notebook" size={15} />
+                           顧客カルテ
+                       </button>
                        {isAdmin && (
                            <button onClick={() => setCurrentView('admin')} className={`px-3 py-2 rounded-md font-medium transition-colors text-sm ${currentView === 'admin' ? 'bg-purple-600 text-white' : 'text-purple-600 hover:bg-purple-50'}`}>
                                ユーザー管理
@@ -6777,11 +7672,12 @@
                     {currentView === 'home' && <HomePage onNavigate={setCurrentView} />}
                     {currentView === 'dashboard' && <SalesDataDashboard />}
                     {currentView === 'sales' && <SalesApp />}
-                    {currentView === 'flow' && <FlowManagementApp />}
+                    {currentView === 'flow' && <FlowManagementApp onNavigateToKarte={() => setCurrentView('karte')} />}
                     {currentView === 'bank' && <BankManagementApp />}
                     {currentView === 'debut' && <DebutTrainingApp />}
                     {currentView === 'stockcon' && <StockConInfoApp />}
                     {currentView === 'schedule' && <ScheduleApp />}
+                    {currentView === 'karte' && <KarteApp />}
                     {currentView === 'admin' && isAdmin && <UserManagementApp />}
                 </ErrorBoundary>
               </div>
