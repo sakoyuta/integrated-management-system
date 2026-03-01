@@ -12,7 +12,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <!-- EmailJS SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
 
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -6561,7 +6561,7 @@
                             to_name: nameTrimmed,
                             to_email: emailTrimmed,
                             password: autoPassword,
-                        }, EMAILJS_PUBLIC_KEY);
+                        }, { publicKey: EMAILJS_PUBLIC_KEY });
                         setNewEmail(''); setNewName(''); setNewIsAdmin(false);
                         setShowAddModal(false);
                         showMsg(`「${nameTrimmed}」を追加し、ログイン情報をメール送信しました`);
