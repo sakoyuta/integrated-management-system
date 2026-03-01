@@ -12,7 +12,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <!-- EmailJS SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
 
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -6532,12 +6532,23 @@
                 const emailTrimmed = newEmail.trim();
                 const nameTrimmed = newName.trim();
                 try {
+                    // ① Firebaseアカウント作成
                     const secondaryApp = firebase.initializeApp(firebaseConfig, 'secondary_' + Date.now());
                     const secondaryAuth = secondaryApp.auth();
-                    const result = await secondaryAuth.createUserWithEmailAndPassword(emailTrimmed, autoPassword);
-                    const uid = result.user.uid;
-                    await secondaryAuth.signOut();
-                    await secondaryApp.delete();
+                    let uid;
+                    try {
+                        const result = await secondaryAuth.createUserWithEmailAndPassword(emailTrimmed, autoPassword);
+                        uid = result.user.uid;
+                    } catch (authErr) {
+                        if (authErr.code === 'auth/email-already-in-use') {
+                            setAddError('このメールアドレスは既に使用されています');
+                            return;
+                        }
+                        throw authErr;
+                    } finally {
+                        await secondaryAuth.signOut().catch(() => {});
+                        await secondaryApp.delete().catch(() => {});
+                    }
                     await database.ref(`users/${uid}`).set({
                         email: emailTrimmed,
                         name: nameTrimmed,
@@ -6545,21 +6556,24 @@
                         disabled: false,
                         createdAt: new Date().toISOString()
                     });
-                    // メール送信
-                    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-                        to_name: nameTrimmed,
-                        to_email: emailTrimmed,
-                        password: autoPassword,
-                    });
-                    setNewEmail(''); setNewName(''); setNewIsAdmin(false);
-                    setShowAddModal(false);
-                    showMsg(`「${nameTrimmed}」を追加し、ログイン情報をメール送信しました`);
-                } catch (err) {
-                    if (err.code === 'auth/email-already-in-use') {
-                        setAddError('このメールアドレスは既に使用されています');
-                    } else {
-                        setAddError('追加に失敗しました: ' + err.message);
+                    // ② メール送信（失敗してもアカウント登録は維持）
+                    try {
+                        await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+                            to_name: nameTrimmed,
+                            to_email: emailTrimmed,
+                            password: autoPassword,
+                        });
+                        setNewEmail(''); setNewName(''); setNewIsAdmin(false);
+                        setShowAddModal(false);
+                        showMsg(`「${nameTrimmed}」を追加し、ログイン情報をメール送信しました`);
+                    } catch (mailErr) {
+                        const mailErrDetail = mailErr?.text || mailErr?.message || JSON.stringify(mailErr);
+                        setNewEmail(''); setNewName(''); setNewIsAdmin(false);
+                        setShowAddModal(false);
+                        showMsg(`「${nameTrimmed}」を追加しました（メール送信失敗: ${mailErrDetail}）`);
                     }
+                } catch (err) {
+                    setAddError('追加に失敗しました: ' + (err.message || JSON.stringify(err)));
                 } finally {
                     setIsAdding(false);
                 }
