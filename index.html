@@ -6603,6 +6603,16 @@
                 showMsg(`「${name}」を削除しました`);
             };
 
+            const handleResendEmail = async (u) => {
+                if (!window.confirm(`「${u.name}」にパスワードリセットメールを送信しますか？`)) return;
+                try {
+                    await auth.sendPasswordResetEmail(u.email);
+                    showMsg(`「${u.name}」にパスワードリセットメールを送信しました`);
+                } catch (err) {
+                    showMsg(`送信失敗: ${err.message}`);
+                }
+            };
+
             const openEditModal = (u) => {
                 setEditTarget(u);
                 setEditName(u.name);
@@ -6667,9 +6677,12 @@
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-3 text-center">
-                                                    <div className="flex items-center justify-center gap-2">
+                                                    <div className="flex items-center justify-center gap-2 flex-wrap">
                                                         <button onClick={() => openEditModal(u)} className="text-xs px-3 py-1.5 rounded-lg font-bold transition bg-blue-100 text-blue-600 hover:bg-blue-200">
                                                             編集
+                                                        </button>
+                                                        <button onClick={() => handleResendEmail(u)} className="text-xs px-3 py-1.5 rounded-lg font-bold transition bg-gray-100 text-gray-600 hover:bg-gray-200">
+                                                            再送
                                                         </button>
                                                         <button onClick={() => handleToggleDisable(u.uid, u.name, u.disabled)} className={`text-xs px-3 py-1.5 rounded-lg font-bold transition ${u.disabled ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-orange-100 text-orange-600 hover:bg-orange-200'}`}>
                                                             {u.disabled ? '有効にする' : '無効にする'}
