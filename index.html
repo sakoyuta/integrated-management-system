@@ -11,6 +11,9 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 
+    <!-- EmailJS SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
@@ -102,6 +105,17 @@
         }
         const database = firebase.database();
         const storage = firebase.storage();
+
+        // EmailJS 初期化
+        emailjs.init('Q4rlzEO1L9zYTGd7X');
+        const EMAILJS_SERVICE_ID = 'service_3utqcmd';
+        const EMAILJS_TEMPLATE_ID = 'smo1b9il';
+
+        // パスワード自動生成（英数字12文字）
+        const generatePassword = () => {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+            return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        };
         const auth = firebase.auth();
         const googleProvider = new firebase.auth.GoogleAuthProvider();
         // ログイン/初期設定ハンドラが処理中の場合にonAuthStateChangedの干渉を防ぐフラグ
@@ -6487,7 +6501,6 @@
             const [showAddModal, setShowAddModal] = useState(false);
             const [newEmail, setNewEmail] = useState('');
             const [newName, setNewName] = useState('');
-            const [newPassword, setNewPassword] = useState('');
             const [newIsAdmin, setNewIsAdmin] = useState(false);
             const [addError, setAddError] = useState('');
             const [isAdding, setIsAdding] = useState(false);
@@ -6515,29 +6528,35 @@
                 e.preventDefault();
                 setAddError('');
                 setIsAdding(true);
+                const autoPassword = generatePassword();
+                const emailTrimmed = newEmail.trim();
+                const nameTrimmed = newName.trim();
                 try {
                     const secondaryApp = firebase.initializeApp(firebaseConfig, 'secondary_' + Date.now());
                     const secondaryAuth = secondaryApp.auth();
-                    const result = await secondaryAuth.createUserWithEmailAndPassword(newEmail.trim(), newPassword);
+                    const result = await secondaryAuth.createUserWithEmailAndPassword(emailTrimmed, autoPassword);
                     const uid = result.user.uid;
                     await secondaryAuth.signOut();
                     await secondaryApp.delete();
                     await database.ref(`users/${uid}`).set({
-                        email: newEmail.trim(),
-                        name: newName.trim(),
+                        email: emailTrimmed,
+                        name: nameTrimmed,
                         isAdmin: newIsAdmin,
                         disabled: false,
                         createdAt: new Date().toISOString()
                     });
-                    const addedName = newName.trim();
-                    setNewEmail(''); setNewName(''); setNewPassword(''); setNewIsAdmin(false);
+                    // メール送信
+                    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+                        to_name: nameTrimmed,
+                        to_email: emailTrimmed,
+                        password: autoPassword,
+                    });
+                    setNewEmail(''); setNewName(''); setNewIsAdmin(false);
                     setShowAddModal(false);
-                    showMsg(`「${addedName}」を追加しました`);
+                    showMsg(`「${nameTrimmed}」を追加し、ログイン情報をメール送信しました`);
                 } catch (err) {
                     if (err.code === 'auth/email-already-in-use') {
                         setAddError('このメールアドレスは既に使用されています');
-                    } else if (err.code === 'auth/weak-password') {
-                        setAddError('パスワードは8文字以上にしてください');
                     } else {
                         setAddError('追加に失敗しました: ' + err.message);
                     }
@@ -6623,10 +6642,7 @@
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
                                                 <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required placeholder="例：yamada@g-house.osaka.jp" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
                                             </div>
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">初期パスワード（8文字以上）</label>
-                                                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={8} placeholder="初期パスワードを設定" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-                                            </div>
+                                            <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">パスワードは自動生成され、登録メールアドレスに送信されます。</p>
                                             <div className="flex items-center gap-2">
                                                 <input type="checkbox" id="newIsAdmin" checked={newIsAdmin} onChange={e => setNewIsAdmin(e.target.checked)} className="w-4 h-4 rounded" />
                                                 <label htmlFor="newIsAdmin" className="text-sm text-gray-700">管理者権限を付与する</label>
