@@ -7547,6 +7547,7 @@
           const [isAdmin, setIsAdmin] = useState(false);
           const [isCheckingAuth, setIsCheckingAuth] = useState(true);
           const [showDiagnostics, setShowDiagnostics] = useState(false);
+          const [sidebarOpen, setSidebarOpen] = useState(true);
 
           // Firebase Auth状態を監視（DB照合でアクセス制御）
           useEffect(() => {
@@ -7617,8 +7618,6 @@
           if (!isLoggedIn) {
               return <LoginScreen onLogin={handleLogin} />;
           }
-
-          const [sidebarOpen, setSidebarOpen] = useState(true);
 
           const navItems = [
             { view: 'karte',     label: '顧客カルテ',     icon: 'notebook' },
