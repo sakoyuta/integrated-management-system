@@ -106,10 +106,9 @@
         const database = firebase.database();
         const storage = firebase.storage();
 
-        // EmailJS 初期化
-        emailjs.init('Q4rlzEO1L9zYTGd7X');
         const EMAILJS_SERVICE_ID = 'service_3utqcmd';
         const EMAILJS_TEMPLATE_ID = 'smo1b9il';
+        const EMAILJS_PUBLIC_KEY = 'Q4rlzEO1L9zYTGd7X';
 
         // パスワード自動生成（英数字12文字）
         const generatePassword = () => {
@@ -6562,7 +6561,7 @@
                             to_name: nameTrimmed,
                             to_email: emailTrimmed,
                             password: autoPassword,
-                        });
+                        }, EMAILJS_PUBLIC_KEY);
                         setNewEmail(''); setNewName(''); setNewIsAdmin(false);
                         setShowAddModal(false);
                         showMsg(`「${nameTrimmed}」を追加し、ログイン情報をメール送信しました`);
