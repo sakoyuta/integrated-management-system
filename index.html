@@ -1358,6 +1358,7 @@
             const [dragOverItem, setDragOverItem] = useState(null);
             const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
             const [isEditMode, setIsEditMode] = useState(false);
+            const [showKarte, setShowKarte] = useState(false);
 
             // Set initial selected step after data loads
             useEffect(() => {
@@ -1406,12 +1407,26 @@
             };
 
             return (
-                <div className="flex h-full w-full bg-gray-100 font-sans">
-                    <ErrorBoundary>
-                        <StepSelector listTitle="営業作業フロー" steps={flowSteps} selectedStepId={selectedStepId} onSelectStep={setSelectedStepId} onAddStep={handleAddStep} onRequestDeleteStep={handleRequestDeleteStep} draggingItem={draggingItem} setDraggingItem={setDraggingItem} dragOverItem={dragOverItem} setDragOverItem={setDragOverItem} onDragSort={handleDragSort} />
-                        <main className="flex-1 p-6 overflow-hidden h-full flex flex-col"><div className="flex justify-end mb-4"><button onClick={() => setIsEditMode(!isEditMode)} className={`px-4 py-2 rounded text-sm font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>{isEditMode ? '完了' : '編集'}</button></div><StepEditor step={selectedStep} onUpdateStep={handleUpdateStep} isEditMode={isEditMode} /></main>
-                        <ConfirmModal isOpen={modalState.isOpen} title={modalState.title} message={modalState.message} onConfirm={modalState.onConfirm} onCancel={closeModal} />
-                    </ErrorBoundary>
+                <div className="flex flex-col h-full w-full bg-gray-100 font-sans">
+                    <div className="px-4 py-2 bg-white border-b border-gray-200 flex-shrink-0">
+                        <button
+                            onClick={() => setShowKarte(!showKarte)}
+                            className={`px-4 py-2 rounded text-sm font-bold transition-colors flex items-center gap-2 ${showKarte ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
+                        >
+                            {showKarte ? '← 営業フローに戻る' : '顧客カルテ'}
+                        </button>
+                    </div>
+                    {showKarte ? (
+                        <iframe src="https://customer-karte-pi.vercel.app/" className="flex-1 w-full border-none" title="顧客カルテ" allow="fullscreen" />
+                    ) : (
+                        <div className="flex flex-1 overflow-hidden">
+                            <ErrorBoundary>
+                                <StepSelector listTitle="営業作業フロー" steps={flowSteps} selectedStepId={selectedStepId} onSelectStep={setSelectedStepId} onAddStep={handleAddStep} onRequestDeleteStep={handleRequestDeleteStep} draggingItem={draggingItem} setDraggingItem={setDraggingItem} dragOverItem={dragOverItem} setDragOverItem={setDragOverItem} onDragSort={handleDragSort} />
+                                <main className="flex-1 p-6 overflow-hidden h-full flex flex-col"><div className="flex justify-end mb-4"><button onClick={() => setIsEditMode(!isEditMode)} className={`px-4 py-2 rounded text-sm font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>{isEditMode ? '完了' : '編集'}</button></div><StepEditor step={selectedStep} onUpdateStep={handleUpdateStep} isEditMode={isEditMode} /></main>
+                                <ConfirmModal isOpen={modalState.isOpen} title={modalState.title} message={modalState.message} onConfirm={modalState.onConfirm} onCancel={closeModal} />
+                            </ErrorBoundary>
+                        </div>
+                    )}
                 </div>
             );
         };
