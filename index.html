@@ -6886,7 +6886,9 @@
                               {c.status?.contractDate && (<><span className="text-slate-300">|</span><span>契約日: <span className="font-bold text-slate-700">{c.status.contractDate}</span></span></>)}
                             </div>
                             <div className="flex flex-wrap gap-1 mt-1.5">
-                              {[['hito','人'],['mono','物'],['money','金'],['time','時'],['rival','敵']].map(([k,l]) => c.eval?.[k] && <span key={k} className="text-xs font-bold px-1.5 py-0.5 border border-slate-300 text-slate-600">{l} {c.eval[k]}</span>)}
+                              {[['hito','人'],['mono','物'],['money','金'],['time','時'],['rival','敵']].map(([k,l]) => (
+                                <span key={k} className={`text-xs font-bold px-1.5 py-0.5 border ${c.eval?.[k] ? 'border-slate-400 text-slate-700' : 'border-slate-200 text-slate-300'}`}>{l} {c.eval?.[k] || '─'}</span>
+                              ))}
                             </div>
                           </div>
                           <button onClick={() => onEdit(c.id)} className="bg-slate-700 text-white px-4 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-800 transition flex-shrink-0"><KIcEdit /> 開く</button>
@@ -7064,7 +7066,7 @@
         };
 
         // --- 顧客一覧画面 ---
-        const KCustomerList = ({ customers, onNew, onEdit, onDelete, dbLoading, branches, onAddBranch, onDeleteBranch, contractCount, onGoContracts }) => {
+        const KCustomerList = ({ customers, onNew, onEdit, onDelete, dbLoading, branches, onAddBranch, onDeleteBranch, contractCount, onGoContracts, onUpdateEval }) => {
           const [search, setSearch] = useState('');
           const [deleteTarget, setDeleteTarget] = useState(null);
           const [selectedBranch, setSelectedBranch] = useState('all');
@@ -7173,11 +7175,20 @@
                               <span className="text-slate-300">|</span>
                               <span>更新: {new Date(c.updatedAt).toLocaleDateString('ja-JP')} {new Date(c.updatedAt).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}</span>
                             </div>
-                            <div className="flex flex-wrap gap-1 mt-1.5">
-                              {['person','money','time','rival'].map((k,i) => { const labels=['人物','金','時','敵']; return c.eval?.[k] && (<span key={k} className="text-xs font-bold px-1.5 py-0.5 border border-slate-300 text-slate-600">{labels[i]} {c.eval[k]}</span>); })}
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 pt-2 border-t border-slate-100">
+                              {[['hito','人'],['mono','物'],['money','金'],['time','時'],['rival','敵']].map(([k,l]) => (
+                                <div key={k} className="flex items-center gap-1">
+                                  <span className="text-xs text-slate-500 w-4 font-bold">{l}</span>
+                                  {['○','△','✕'].map(v => (
+                                    <button key={v} type="button"
+                                      onClick={() => { const e = {...(c.eval || emptyEval()), [k]: (c.eval?.[k] === v ? '' : v) }; onUpdateEval(c.id, e); }}
+                                      className={`w-6 h-6 text-xs font-bold border transition ${c.eval?.[k] === v ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-100'}`}>{v}</button>
+                                  ))}
+                                </div>
+                              ))}
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="flex items-center gap-2 flex-shrink-0 self-start mt-1">
                             <button onClick={() => onEdit(c.id)} className="bg-slate-700 text-white px-4 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-800 transition"><KIcEdit /> 開く</button>
                             <button onClick={() => setDeleteTarget(c)} className="border border-slate-300 text-slate-500 px-3 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-100 transition"><KIcTrash /></button>
                           </div>
@@ -7201,7 +7212,6 @@
           const [infoSaving, setInfoSaving] = useState(false);
           const [infoErr, setInfoErr] = useState('');
           const [statusData, setStatusData] = useState(customer.status || emptyStatus());
-          const [evalData, setEvalData] = useState(customer.eval || emptyEval());
           const [statusSaving, setStatusSaving] = useState(false);
 
           const handleSaveInfo = async () => {
@@ -7279,56 +7289,43 @@
                 {/* 状態・評価パネル */}
                 <div className="bg-white border border-slate-300 p-4 mb-4 no-print">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-bold text-slate-700 text-sm">お客様状態・評価</h3>
-                    <button type="button" onClick={async () => { setStatusSaving(true); await onUpdateStatus(customer.id, statusData, evalData); setStatusSaving(false); }}
+                    <h3 className="font-bold text-slate-700 text-sm">【物】状態・ランク・契約日</h3>
+                    <button type="button" onClick={async () => { setStatusSaving(true); await onUpdateStatus(customer.id, statusData); setStatusSaving(false); }}
                       className="text-xs bg-slate-700 text-white px-4 py-1.5 font-bold hover:bg-slate-800 transition disabled:opacity-50" disabled={statusSaving}>
                       {statusSaving ? '保存中...' : '保存'}
                     </button>
                   </div>
-                  <div className="flex gap-0 flex-wrap divide-x divide-slate-200">
-                    {/* 【物】状態・ランク・契約日 */}
-                    <div className="pr-6 space-y-3 flex-1 min-w-[220px]">
-                      <p className="text-xs font-bold text-slate-500 pb-1 border-b border-slate-200">【物】状態・ランク・契約日</p>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs text-slate-400 mb-1">お客様の状態</p>
+                      <div className="flex gap-1 flex-wrap">
+                        {['限定会員', '建築申込', '契約'].map(s => (
+                          <button key={s} type="button"
+                            onClick={() => setStatusData(p => ({...p, customerStatus: p.customerStatus===s?'':s, rank: s!=='限定会員'?'':p.rank, contractDate: s!=='契約'?'':p.contractDate}))}
+                            className={`px-3 py-1 text-sm border transition ${
+                              statusData.customerStatus === s ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                            }`}>{s}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {statusData.customerStatus === '限定会員' && (
                       <div>
-                        <p className="text-xs text-slate-400 mb-1">お客様の状態</p>
-                        <div className="flex gap-1 flex-wrap">
-                          {['限定会員', '建築申込', '契約'].map(s => (
-                            <button key={s} type="button"
-                              onClick={() => setStatusData(p => ({...p, customerStatus: p.customerStatus===s?'':s, rank: s!=='限定会員'?'':p.rank, contractDate: s!=='契約'?'':p.contractDate}))}
-                              className={`px-3 py-1 text-sm border transition ${
-                                statusData.customerStatus === s ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-                              }`}>{s}</button>
+                        <p className="text-xs text-slate-400 mb-1">ランク</p>
+                        <div className="flex gap-1">
+                          {['A','B','C','D'].map(r => (
+                            <button key={r} type="button" onClick={() => setStatusData(p => ({...p, rank: p.rank===r?'':r}))}
+                              className={`w-9 h-9 text-sm border font-bold transition ${statusData.rank===r?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{r}</button>
                           ))}
                         </div>
                       </div>
-                      {statusData.customerStatus === '限定会員' && (
-                        <div>
-                          <p className="text-xs text-slate-400 mb-1">ランク</p>
-                          <div className="flex gap-1">
-                            {['A','B','C','D'].map(r => (
-                              <button key={r} type="button" onClick={() => setStatusData(p => ({...p, rank: p.rank===r?'':r}))}
-                                className={`w-9 h-9 text-sm border font-bold transition ${statusData.rank===r?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{r}</button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {statusData.customerStatus === '契約' && (
-                        <div>
-                          <p className="text-xs text-slate-400 mb-1">契約日</p>
-                          <input type="date" value={statusData.contractDate || ''} onChange={e => setStatusData(p => ({...p, contractDate: e.target.value}))}
-                            className="border border-slate-300 px-2 py-1 text-sm outline-none" />
-                        </div>
-                      )}
-                    </div>
-                    {/* 【人】人・物・金・時・敵 */}
-                    <div className="pl-6 space-y-2 flex-1 min-w-[180px]">
-                      <p className="text-xs font-bold text-slate-500 pb-1 border-b border-slate-200">【人】人・物・金・時・敵</p>
-                      <KOATSelector label="人" value={evalData.hito} onChange={v => setEvalData(p => ({...p, hito: v}))} />
-                      <KOATSelector label="物" value={evalData.mono} onChange={v => setEvalData(p => ({...p, mono: v}))} />
-                      <KOATSelector label="金" value={evalData.money} onChange={v => setEvalData(p => ({...p, money: v}))} />
-                      <KOATSelector label="時" value={evalData.time} onChange={v => setEvalData(p => ({...p, time: v}))} />
-                      <KOATSelector label="敵" value={evalData.rival} onChange={v => setEvalData(p => ({...p, rival: v}))} />
-                    </div>
+                    )}
+                    {statusData.customerStatus === '契約' && (
+                      <div>
+                        <p className="text-xs text-slate-400 mb-1">契約日</p>
+                        <input type="date" value={statusData.contractDate || ''} onChange={e => setStatusData(p => ({...p, contractDate: e.target.value}))}
+                          className="border border-slate-300 px-2 py-1 text-sm outline-none" />
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -7812,13 +7809,20 @@
 
           const handleEdit = (id, from = 'list') => { setReturnScreen(from); setCurrentId(id); setScreen('edit'); };
 
-          const handleUpdateStatus = async (id, status, evalData) => {
+          const handleUpdateStatus = async (id, status) => {
             try {
               const updatedAt = new Date().toISOString();
-              await database.ref('karte/customers/' + id).update({ status, eval: evalData, updatedAt });
-              setCustomers(prev => prev.map(c => c.id === id ? { ...c, status, eval: evalData, updatedAt } : c));
+              await database.ref('karte/customers/' + id).update({ status, updatedAt });
+              setCustomers(prev => prev.map(c => c.id === id ? { ...c, status, updatedAt } : c));
               return null;
             } catch (e) { return e.message; }
+          };
+          const handleUpdateEval = async (id, evalData) => {
+            try {
+              const updatedAt = new Date().toISOString();
+              await database.ref('karte/customers/' + id).update({ eval: evalData, updatedAt });
+              setCustomers(prev => prev.map(c => c.id === id ? { ...c, eval: evalData, updatedAt } : c));
+            } catch (e) { console.error(e); }
           };
 
           const handleSave = async (id, karteData) => {
@@ -7852,7 +7856,7 @@
           return (
             <>
               {showNewModal && <KNewCustomerModal onClose={() => setShowNewModal(false)} onCreate={handleCreate} />}
-              {screen === 'list' && <KCustomerList customers={activeCustomers} onNew={() => setShowNewModal(true)} onEdit={handleEdit} onDelete={handleDelete} dbLoading={dbLoading} branches={branches} onAddBranch={handleAddBranch} onDeleteBranch={handleDeleteBranch} contractCount={contractedCustomers.length} onGoContracts={() => setScreen('contracts')} />}
+              {screen === 'list' && <KCustomerList customers={activeCustomers} onNew={() => setShowNewModal(true)} onEdit={handleEdit} onDelete={handleDelete} dbLoading={dbLoading} branches={branches} onAddBranch={handleAddBranch} onDeleteBranch={handleDeleteBranch} contractCount={contractedCustomers.length} onGoContracts={() => setScreen('contracts')} onUpdateEval={handleUpdateEval} />}
               {screen === 'contracts' && <KContractList customers={contractedCustomers} onEdit={(id) => handleEdit(id, 'contracts')} onBack={() => setScreen('list')} />}
               {screen === 'edit' && currentCustomer && <KKarteEditor customer={currentCustomer} onBack={handleBack} onSave={handleSave} onUpdateInfo={handleUpdateInfo} onUpdateStatus={handleUpdateStatus} />}
             </>
