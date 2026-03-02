@@ -29,17 +29,16 @@
         .markdown-body ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; }
         .markdown-body strong { color: #2563eb; }
         @media print {
-            @page { size: A4 portrait; margin: 8mm; }
+            @page { size: A4 portrait; margin: 10mm 8mm; }
 
-            /* サイドバー・ヘッダー含め全要素を非表示 */
+            /* アプリ全体を非表示（サイドバー・ヘッダー含む） */
             body * { visibility: hidden !important; }
 
-            /* カルテ印刷エリアだけ表示 */
+            /* ── 印刷エリア本体 ── */
             .karte-print-area {
                 visibility: visible !important;
                 position: absolute !important;
-                top: 0 !important;
-                left: 0 !important;
+                top: 0 !important; left: 0 !important;
                 width: 194mm !important;
                 overflow: visible !important;
                 box-shadow: none !important;
@@ -50,16 +49,44 @@
             }
             .karte-print-area * { visibility: visible !important; }
 
-            /* セクション（B・C）でページ区切り */
+            /* ── 外枠（border border-black）がページをまたいでも切れない ── */
+            .karte-inner {
+                width: 100% !important;
+                box-decoration-break: clone !important;
+                -webkit-box-decoration-break: clone !important;
+            }
+
+            /* ── グリッド行・小セクションが途中で切れない ── */
+            .karte-print-area .grid {
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+            }
+            .karte-print-area .border-b {
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+            }
+
+            /* ── B・C セクションで改ページ ── */
             .karte-page-break {
                 page-break-before: always !important;
                 break-before: page !important;
+                padding-top: 4mm !important;
             }
 
-            /* テーブルの複数ページ対応 */
-            table { page-break-inside: auto !important; border-collapse: collapse !important; }
-            tr { page-break-inside: avoid !important; page-break-after: auto !important; }
+            /* ── テーブル複数ページ対応 ── */
+            table {
+                page-break-inside: auto !important;
+                border-collapse: collapse !important;
+                width: 100% !important;
+            }
+            tr { page-break-inside: avoid !important; }
             thead { display: table-header-group !important; }
+
+            /* ── 背景色を印刷（セクション見出しの色） ── */
+            .karte-print-area * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
         }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
@@ -7464,7 +7491,7 @@
                 {/* カルテ一覧（印刷用） */}
                 {activeTab === 'summary' && (
                   <div className="karte-print-area bg-white p-6 shadow-2xl rounded-sm border border-slate-300 overflow-auto">
-                    <div className="text-[11px] border border-black">
+                    <div className="karte-inner text-[11px] border border-black">
                       <div className="flex justify-between items-center bg-slate-800 text-white px-4 py-2">
                         <div className="font-black text-base tracking-widest">🧭 お客様情報カルテ　ver2.3</div>
                         <div className="text-[10px] text-right space-y-0.5">
