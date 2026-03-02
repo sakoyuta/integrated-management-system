@@ -28,6 +28,21 @@
         .markdown-body h3 { font-size: 1.1em; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; }
         .markdown-body ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; }
         .markdown-body strong { color: #2563eb; }
+        @media print {
+            @page { size: A4 portrait; margin: 8mm; }
+            body * { visibility: hidden !important; }
+            .karte-print-area, .karte-print-area * { visibility: visible !important; }
+            .karte-print-area {
+                position: fixed !important;
+                top: 0 !important; left: 0 !important;
+                width: 210mm !important;
+                overflow: visible !important;
+                box-shadow: none !important;
+                border: none !important;
+                padding: 0 !important;
+                background: white !important;
+            }
+        }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
@@ -7256,7 +7271,7 @@
           return (
             <div className="min-h-screen bg-slate-100 py-4 px-4 font-sans">
               <div className="max-w-5xl mx-auto">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-4">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-4 no-print">
                   <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <button onClick={onBack} className="flex items-center gap-1.5 text-slate-600 hover:text-slate-800 font-bold text-sm border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-50 transition"><KIcBack /> 一覧へ戻る</button>
@@ -7430,7 +7445,7 @@
 
                 {/* カルテ一覧（印刷用） */}
                 {activeTab === 'summary' && (
-                  <div className="bg-white p-6 shadow-2xl rounded-sm border border-slate-300 overflow-auto">
+                  <div className="karte-print-area bg-white p-6 shadow-2xl rounded-sm border border-slate-300 overflow-auto">
                     <div className="text-[11px] border border-black">
                       <div className="flex justify-between items-center bg-slate-800 text-white px-4 py-2">
                         <div className="font-black text-base tracking-widest">🧭 お客様情報カルテ　ver2.3</div>
