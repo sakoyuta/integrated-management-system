@@ -6833,16 +6833,12 @@
 
         const KOATSelector = ({ value, onChange, label }) => (
           <div className="flex items-center gap-2">
-            {label && <span className="text-xs text-slate-600 w-16 flex-shrink-0">{label}</span>}
+            {label && <span className="text-xs text-slate-600 w-14 flex-shrink-0">{label}</span>}
             <div className="flex gap-1">
               {['○', '△', '✕'].map(v => (
                 <button key={v} type="button" onClick={() => onChange(value === v ? '' : v)}
-                  className={`w-7 h-7 text-xs font-bold rounded border transition ${
-                    value === v
-                      ? v === '○' ? 'bg-green-500 text-white border-green-500'
-                        : v === '△' ? 'bg-yellow-400 text-white border-yellow-400'
-                        : 'bg-red-400 text-white border-red-400'
-                      : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50'
+                  className={`w-7 h-7 text-xs font-bold border transition ${
+                    value === v ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-500 border-slate-300 hover:bg-slate-100'
                   }`}>{v}</button>
               ))}
             </div>
@@ -6858,42 +6854,42 @@
           return (
             <div className="min-h-screen bg-slate-100 font-sans">
               <div className="max-w-5xl mx-auto px-4 py-8">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+                <div className="bg-white border border-slate-200 p-5 mb-4">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                      <button onClick={onBack} className="flex items-center gap-1.5 text-slate-600 hover:text-slate-800 font-bold text-sm border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-50 transition"><KIcBack /> 顧客一覧へ</button>
-                      <div><h1 className="text-xl font-black text-slate-800">📋 契約済一覧</h1><p className="text-xs text-slate-500">契約完了したお客様の一覧</p></div>
+                      <button onClick={onBack} className="flex items-center gap-1.5 text-slate-600 hover:text-slate-800 font-bold text-sm border border-slate-300 px-3 py-2 hover:bg-slate-50 transition"><KIcBack /> 顧客一覧へ</button>
+                      <div><h1 className="text-xl font-black text-slate-800">契約済一覧</h1><p className="text-xs text-slate-500">契約完了したお客様の一覧</p></div>
                     </div>
-                    <span className="bg-purple-100 text-purple-700 font-black text-sm px-3 py-1.5 rounded-full">{customers.length} 件</span>
+                    <span className="bg-slate-100 text-slate-700 font-black text-sm px-3 py-1.5">{customers.length} 件</span>
                   </div>
                 </div>
-                <div className="mb-4"><input className="w-full p-3 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm" placeholder="🔍 お客様名・担当者名・拠点で検索..." value={search} onChange={e => setSearch(e.target.value)} /></div>
+                <div className="mb-4"><input className="w-full p-3 border border-slate-300 text-sm outline-none bg-white" placeholder="お客様名・担当者名・拠点で検索..." value={search} onChange={e => setSearch(e.target.value)} /></div>
                 <p className="text-xs text-slate-400 mb-3 px-1">{sorted.length} 件</p>
                 {sorted.length === 0 ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-16 text-center">
+                  <div className="bg-white border border-slate-200 p-16 text-center">
                     <div className="text-5xl mb-4">🏆</div>
                     <p className="text-slate-500 font-bold">{search ? '検索結果が見つかりません' : '契約済のお客様はまだいません'}</p>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     {sorted.map(c => (
-                      <div key={c.id} className="bg-white rounded-xl border border-purple-200 shadow-sm hover:shadow-md transition overflow-hidden border-l-4 border-l-purple-500">
+                      <div key={c.id} className="bg-white border border-slate-200 hover:bg-slate-50 transition">
                         <div className="flex items-center gap-4 p-4">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-lg font-black text-slate-800">{c.customerName} 様</span>
-                              <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">{c.belong}</span>
-                              <span className="bg-purple-100 text-purple-700 text-xs font-bold px-2 py-0.5 rounded-full">契約済</span>
+                              <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-0.5">{c.belong}</span>
+                              <span className="bg-slate-700 text-white text-xs font-bold px-2 py-0.5">契約済</span>
                             </div>
                             <div className="flex items-center gap-4 mt-1 text-sm text-slate-500 flex-wrap">
                               <span>担当: <span className="font-bold text-slate-700">{c.staffName}</span></span>
-                              {c.status?.contractDate && (<><span className="text-slate-300">|</span><span>契約日: <span className="font-bold text-purple-700">{c.status.contractDate}</span></span></>)}
+                              {c.status?.contractDate && (<><span className="text-slate-300">|</span><span>契約日: <span className="font-bold text-slate-700">{c.status.contractDate}</span></span></>)}
                             </div>
                             <div className="flex flex-wrap gap-1 mt-1.5">
-                              {['person','money','time','rival'].map((k,i) => { const labels = ['人物','金','時','敵']; return c.eval?.[k] && (<span key={k} className={`text-xs font-bold px-1.5 py-0.5 rounded border ${c.eval[k]==='○'?'border-green-300 text-green-700':c.eval[k]==='△'?'border-yellow-300 text-yellow-700':'border-red-300 text-red-600'}`}>{labels[i]} {c.eval[k]}</span>); })}
+                              {['person','money','time','rival'].map((k,i) => { const labels = ['人物','金','時','敵']; return c.eval?.[k] && (<span key={k} className="text-xs font-bold px-1.5 py-0.5 border border-slate-300 text-slate-600">{labels[i]} {c.eval[k]}</span>); })}
                             </div>
                           </div>
-                          <button onClick={() => onEdit(c.id)} className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-1.5 hover:bg-purple-700 transition flex-shrink-0"><KIcEdit /> 開く</button>
+                          <button onClick={() => onEdit(c.id)} className="bg-slate-700 text-white px-4 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-800 transition flex-shrink-0"><KIcEdit /> 開く</button>
                         </div>
                       </div>
                     ))}
@@ -7090,44 +7086,44 @@
               {deleteTarget && <KDeleteModal customerName={deleteTarget.customerName} onCancel={() => setDeleteTarget(null)} onConfirm={() => { onDelete(deleteTarget.id); setDeleteTarget(null); }} />}
               {showBranchMgr && <KBranchManagerModal branches={branches} onAdd={onAddBranch} onDelete={onDeleteBranch} onClose={() => setShowBranchMgr(false)} />}
               <div className="max-w-5xl mx-auto px-4 py-8">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+                <div className="bg-white border border-slate-200 p-5 mb-4">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                      <span className="text-blue-600"><KIcGrid /></span>
-                      <div><h1 className="text-2xl font-black text-slate-800 tracking-tight">🧭 顧客カルテ統合システム</h1><p className="text-sm text-slate-500 mt-0.5">G-House 営業部専用ツール</p></div>
+                      <span className="text-slate-500"><KIcGrid /></span>
+                      <div><h1 className="text-2xl font-black text-slate-800 tracking-tight">顧客カルテ統合システム</h1><p className="text-sm text-slate-500 mt-0.5">G-House 営業部専用ツール</p></div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button onClick={onGoContracts} className="border border-purple-300 text-purple-700 bg-purple-50 px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-purple-100 transition">
-                        📋 契約済{contractCount > 0 && <span className="bg-purple-600 text-white text-xs font-black px-1.5 py-0.5 rounded-full">{contractCount}</span>}
+                      <button onClick={onGoContracts} className="border border-slate-400 text-slate-600 bg-white px-4 py-2 font-bold text-sm flex items-center gap-2 hover:bg-slate-50 transition">
+                        契約済一覧{contractCount > 0 && <span className="bg-slate-600 text-white text-xs font-bold px-1.5 py-0.5">{contractCount}</span>}
                       </button>
-                      <button onClick={onNew} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition shadow-md"><KIcPlus /> 新規カルテ作成</button>
+                      <button onClick={onNew} className="bg-slate-700 text-white px-5 py-2 font-bold text-sm flex items-center gap-2 hover:bg-slate-800 transition"><KIcPlus /> 新規カルテ作成</button>
                     </div>
                   </div>
                 </div>
                 <div className="mb-3 flex items-center gap-2">
                   <div className="flex gap-2 flex-wrap flex-1">
-                    <button onClick={() => setSelectedBranch('all')} className={`px-4 py-2 rounded-full text-sm font-bold transition border ${selectedBranch === 'all' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>全て ({customers.length})</button>
+                    <button onClick={() => setSelectedBranch('all')} className={`px-4 py-2 text-sm font-bold transition border ${selectedBranch === 'all' ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>全て ({customers.length})</button>
                     {branches.map(b => {
                       const count = customers.filter(c => c.belong === b.name).length;
-                      return <button key={b.id} onClick={() => setSelectedBranch(b.name)} className={`px-4 py-2 rounded-full text-sm font-bold transition border ${selectedBranch === b.name ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{b.name} ({count})</button>;
+                      return <button key={b.id} onClick={() => setSelectedBranch(b.name)} className={`px-4 py-2 text-sm font-bold transition border ${selectedBranch === b.name ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{b.name} ({count})</button>;
                     })}
                   </div>
-                  <button onClick={() => setShowBranchMgr(true)} className="p-2 border border-slate-300 text-slate-500 rounded-xl hover:bg-slate-50 hover:text-slate-700 transition flex-shrink-0" title="拠点を管理"><KIcSettings /></button>
+                  <button onClick={() => setShowBranchMgr(true)} className="p-2 border border-slate-300 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition flex-shrink-0" title="拠点を管理"><KIcSettings /></button>
                 </div>
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-4">
-                  <input className="w-full p-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 mb-3" placeholder="🔍 お客様名・担当者名で検索..." value={search} onChange={e => setSearch(e.target.value)} />
+                <div className="bg-white border border-slate-200 p-4 mb-4">
+                  <input className="w-full p-3 border border-slate-200 text-sm outline-none bg-slate-50 mb-3" placeholder="お客様名・担当者名で検索..." value={search} onChange={e => setSearch(e.target.value)} />
                   <div className="flex gap-3 flex-wrap items-center">
                     <span className="text-xs font-bold text-slate-400 flex-shrink-0">フィルター</span>
                     <div className="flex items-center gap-1.5">
                       <label className="text-xs text-slate-500 font-bold whitespace-nowrap">担当</label>
-                      <select value={selectedStaff} onChange={e => setSelectedStaff(e.target.value)} className="text-sm border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                      <select value={selectedStaff} onChange={e => setSelectedStaff(e.target.value)} className="text-sm border border-slate-300 px-2 py-1.5 outline-none bg-white">
                         <option value="all">全員</option>
                         {staffOptions.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <label className="text-xs text-slate-500 font-bold whitespace-nowrap">状態</label>
-                      <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} className="text-sm border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                      <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} className="text-sm border border-slate-300 px-2 py-1.5 outline-none bg-white">
                         <option value="all">全て</option>
                         <option value="限定会員">限定会員</option>
                         <option value="建築申込">建築申込</option>
@@ -7135,7 +7131,7 @@
                     </div>
                     <div className="flex items-center gap-1.5">
                       <label className="text-xs text-slate-500 font-bold whitespace-nowrap">ランク</label>
-                      <select value={selectedRank} onChange={e => setSelectedRank(e.target.value)} className="text-sm border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                      <select value={selectedRank} onChange={e => setSelectedRank(e.target.value)} className="text-sm border border-slate-300 px-2 py-1.5 outline-none bg-white">
                         <option value="all">全て</option>
                         <option value="A">ランクA</option>
                         <option value="B">ランクB</option>
@@ -7144,13 +7140,13 @@
                       </select>
                     </div>
                     {(selectedStaff !== 'all' || selectedStatus !== 'all' || selectedRank !== 'all') && (
-                      <button onClick={() => { setSelectedStaff('all'); setSelectedStatus('all'); setSelectedRank('all'); }} className="text-xs text-blue-600 font-bold hover:underline">クリア</button>
+                      <button onClick={() => { setSelectedStaff('all'); setSelectedStatus('all'); setSelectedRank('all'); }} className="text-xs text-slate-600 font-bold hover:underline">クリア</button>
                     )}
                   </div>
                 </div>
                 <p className="text-xs text-slate-400 mb-3 px-1">{dbLoading ? '読み込み中...' : `${filtered.length} 件のカルテ`}</p>
                 {filtered.length === 0 ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-16 text-center">
+                  <div className="bg-white border border-slate-200 p-16 text-center">
                     <div className="text-5xl mb-4">📋</div>
                     <p className="text-slate-500 font-bold">{(search || selectedBranch !== 'all') ? '検索結果が見つかりません' : 'カルテがまだありません'}</p>
                     {!search && selectedBranch === 'all' && <p className="text-slate-400 text-sm mt-2">「新規カルテ作成」ボタンから始めてください</p>}
@@ -7158,14 +7154,14 @@
                 ) : (
                   <div className="space-y-3">
                     {filtered.map(c => (
-                      <div key={c.id} className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition overflow-hidden">
+                      <div key={c.id} className="bg-white border border-slate-200 hover:bg-slate-50 transition">
                         <div className="flex items-center gap-4 p-4">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-lg font-black text-slate-800">{c.customerName} 様</span>
-                              <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">{c.belong}</span>
+                              <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-0.5">{c.belong}</span>
                               {c.status?.customerStatus && (
-                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${c.status.customerStatus==='建築申込'?'bg-blue-100 text-blue-700':'bg-green-100 text-green-700'}`}>
+                                <span className="text-xs font-bold px-2 py-0.5 bg-slate-100 text-slate-700">
                                   {c.status.customerStatus}{c.status.rank ? `（${c.status.rank}）` : ''}
                                 </span>
                               )}
@@ -7178,12 +7174,12 @@
                               <span>更新: {new Date(c.updatedAt).toLocaleDateString('ja-JP')} {new Date(c.updatedAt).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}</span>
                             </div>
                             <div className="flex flex-wrap gap-1 mt-1.5">
-                              {['person','money','time','rival'].map((k,i) => { const labels=['人物','金','時','敵']; return c.eval?.[k] && (<span key={k} className={`text-xs font-bold px-1.5 py-0.5 rounded border ${c.eval[k]==='○'?'border-green-300 text-green-700':c.eval[k]==='△'?'border-yellow-300 text-yellow-700':'border-red-300 text-red-600'}`}>{labels[i]} {c.eval[k]}</span>); })}
+                              {['person','money','time','rival'].map((k,i) => { const labels=['人物','金','時','敵']; return c.eval?.[k] && (<span key={k} className="text-xs font-bold px-1.5 py-0.5 border border-slate-300 text-slate-600">{labels[i]} {c.eval[k]}</span>); })}
                             </div>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            <button onClick={() => onEdit(c.id)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-1.5 hover:bg-blue-700 transition"><KIcEdit /> 開く</button>
-                            <button onClick={() => setDeleteTarget(c)} className="border border-red-200 text-red-500 px-3 py-2 rounded-lg font-bold text-sm flex items-center gap-1.5 hover:bg-red-50 transition"><KIcTrash /></button>
+                            <button onClick={() => onEdit(c.id)} className="bg-slate-700 text-white px-4 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-800 transition"><KIcEdit /> 開く</button>
+                            <button onClick={() => setDeleteTarget(c)} className="border border-slate-300 text-slate-500 px-3 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-100 transition"><KIcTrash /></button>
                           </div>
                         </div>
                       </div>
@@ -7281,59 +7277,56 @@
                 </div>
 
                 {/* 状態・評価パネル */}
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-4 no-print">
+                <div className="bg-white border border-slate-300 p-4 mb-4 no-print">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-bold text-slate-700 text-sm">お客様状態・評価</h3>
                     <button type="button" onClick={async () => { setStatusSaving(true); await onUpdateStatus(customer.id, statusData, evalData); setStatusSaving(false); }}
-                      className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50" disabled={statusSaving}>
+                      className="text-xs bg-slate-700 text-white px-4 py-1.5 font-bold hover:bg-slate-800 transition disabled:opacity-50" disabled={statusSaving}>
                       {statusSaving ? '保存中...' : '保存'}
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                    <div className="space-y-3">
+                  <div className="flex gap-0 flex-wrap divide-x divide-slate-200">
+                    {/* 【物】状態・ランク・契約日 */}
+                    <div className="pr-6 space-y-3 flex-1 min-w-[220px]">
+                      <p className="text-xs font-bold text-slate-500 pb-1 border-b border-slate-200">【物】状態・ランク・契約日</p>
                       <div>
-                        <p className="text-xs font-bold text-slate-500 mb-2">お客様の状態</p>
-                        <div className="flex gap-2 flex-wrap">
+                        <p className="text-xs text-slate-400 mb-1">お客様の状態</p>
+                        <div className="flex gap-1 flex-wrap">
                           {['限定会員', '建築申込', '契約'].map(s => (
                             <button key={s} type="button"
                               onClick={() => setStatusData(p => ({...p, customerStatus: p.customerStatus===s?'':s, rank: s!=='限定会員'?'':p.rank, contractDate: s!=='契約'?'':p.contractDate}))}
-                              className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition ${
-                                statusData.customerStatus === s
-                                  ? s==='契約'?'bg-purple-600 text-white border-purple-600'
-                                    :s==='建築申込'?'bg-blue-600 text-white border-blue-600'
-                                    :'bg-green-600 text-white border-green-600'
-                                  : 'bg-white text-slate-500 border-slate-300 hover:bg-slate-50'
+                              className={`px-3 py-1 text-sm border transition ${
+                                statusData.customerStatus === s ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
                               }`}>{s}</button>
                           ))}
                         </div>
                       </div>
                       {statusData.customerStatus === '限定会員' && (
                         <div>
-                          <p className="text-xs text-slate-500 font-bold mb-1.5">ランク</p>
-                          <div className="flex gap-2">
+                          <p className="text-xs text-slate-400 mb-1">ランク</p>
+                          <div className="flex gap-1">
                             {['A','B','C','D'].map(r => (
                               <button key={r} type="button" onClick={() => setStatusData(p => ({...p, rank: p.rank===r?'':r}))}
-                                className={`w-10 h-10 rounded-lg text-sm font-bold border transition ${statusData.rank===r?'bg-orange-500 text-white border-orange-500':'bg-white text-slate-500 border-slate-300 hover:bg-slate-50'}`}>{r}</button>
+                                className={`w-9 h-9 text-sm border font-bold transition ${statusData.rank===r?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{r}</button>
                             ))}
                           </div>
                         </div>
                       )}
                       {statusData.customerStatus === '契約' && (
                         <div>
-                          <p className="text-xs text-slate-500 font-bold mb-1.5">契約日</p>
+                          <p className="text-xs text-slate-400 mb-1">契約日</p>
                           <input type="date" value={statusData.contractDate || ''} onChange={e => setStatusData(p => ({...p, contractDate: e.target.value}))}
-                            className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+                            className="border border-slate-300 px-2 py-1 text-sm outline-none" />
                         </div>
                       )}
                     </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-500 mb-2">人物金時敵</p>
-                      <div className="space-y-1">
-                        <KOATSelector label="人物" value={evalData.person} onChange={v => setEvalData(p => ({...p, person: v}))} />
-                        <KOATSelector label="金" value={evalData.money} onChange={v => setEvalData(p => ({...p, money: v}))} />
-                        <KOATSelector label="時" value={evalData.time} onChange={v => setEvalData(p => ({...p, time: v}))} />
-                        <KOATSelector label="敵" value={evalData.rival} onChange={v => setEvalData(p => ({...p, rival: v}))} />
-                      </div>
+                    {/* 【人】人物・金・時・敵 */}
+                    <div className="pl-6 space-y-2 flex-1 min-w-[180px]">
+                      <p className="text-xs font-bold text-slate-500 pb-1 border-b border-slate-200">【人】人物・金・時・敵</p>
+                      <KOATSelector label="人物" value={evalData.person} onChange={v => setEvalData(p => ({...p, person: v}))} />
+                      <KOATSelector label="金" value={evalData.money} onChange={v => setEvalData(p => ({...p, money: v}))} />
+                      <KOATSelector label="時" value={evalData.time} onChange={v => setEvalData(p => ({...p, time: v}))} />
+                      <KOATSelector label="敵" value={evalData.rival} onChange={v => setEvalData(p => ({...p, rival: v}))} />
                     </div>
                   </div>
                 </div>
