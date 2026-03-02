@@ -29,13 +29,13 @@
         .markdown-body ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; }
         .markdown-body strong { color: #2563eb; }
         @media print {
-            @page { size: A4 portrait; margin: 10mm; }
-            body { background: white !important; }
+            @page { size: A4 portrait; margin: 8mm; }
+            body { background: white !important; margin: 0 !important; }
 
             /* 非印刷要素を非表示 */
             .no-print { display: none !important; }
 
-            /* 外側コンテナをリセット（背景・余白を除去） */
+            /* 外側コンテナをリセット */
             .karte-editor-outer {
                 background: white !important;
                 padding: 0 !important;
@@ -59,14 +59,17 @@
                 background: white !important;
             }
 
+            /* セクション（B・C）でページ区切り */
+            .karte-page-break {
+                page-break-before: always !important;
+                break-before: page !important;
+            }
+
             /* テーブルの複数ページ対応 */
             table { page-break-inside: auto !important; border-collapse: collapse !important; }
             tr { page-break-inside: avoid !important; page-break-after: auto !important; }
             thead { display: table-header-group !important; }
             tfoot { display: table-footer-group !important; }
-
-            /* セクション間で途切れないよう配慮 */
-            .karte-print-area > div { page-break-inside: avoid; }
         }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
@@ -7496,7 +7499,7 @@
                           <tbody>{data.basic.familyMembers.map((m, i) => (<tr key={i}><td className={`${th} font-bold`}>{m.role}</td><td className={td}>{wu(m.age,'歳')}</td><td className={td}>{m.job}</td><td className={td}>{wu(m.income,'万円')}</td><td className={td}>{m.coLiveNow}</td><td className={td}>{m.coLiveFuture}</td></tr>))}</tbody>
                         </table>
                       </div>
-                      <div className="border-b border-black"><div className={`${th} bg-blue-700 text-white text-xs py-1`}>B. 総合ヒアリング</div></div>
+                      <div className="border-b border-black karte-page-break"><div className={`${th} bg-blue-700 text-white text-xs py-1`}>B. 総合ヒアリング</div></div>
                       <div className="grid grid-cols-12 border-b border-black">
                         <div className={`${th} col-span-12 bg-slate-200`}>【生活情報】</div>
                         <div className={`${th} col-span-2`}>住居形態</div><div className={`${td} col-span-4`}>{data.general.life.housingType}</div>
@@ -7561,7 +7564,7 @@
                         <div className={`${th} col-span-2 h-10`}>Gハウスへの不満・不安</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.testClose.complaints}</div>
                         <div className={`${th} col-span-2 h-10`}>次回アポイント</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.testClose.nextDetail}</div>
                       </div>
-                      <div className="border-b border-black"><div className={`${th} bg-blue-700 text-white text-xs py-1`}>C. 土地エリア精査</div></div>
+                      <div className="border-b border-black karte-page-break"><div className={`${th} bg-blue-700 text-white text-xs py-1`}>C. 土地エリア精査</div></div>
                       <div className="grid grid-cols-12 border-b border-black">
                         <div className={`${th} col-span-2`}>希望エリア</div><div className={`${td} col-span-10`}>{data.landDetail.area.target}</div>
                         <div className={`${th} col-span-2 h-10`}>なぜそのエリア？</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.landDetail.area.whyDeep}</div>
