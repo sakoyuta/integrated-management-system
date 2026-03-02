@@ -7175,17 +7175,16 @@
                               <span className="text-slate-300">|</span>
                               <span>更新: {new Date(c.updatedAt).toLocaleDateString('ja-JP')} {new Date(c.updatedAt).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}</span>
                             </div>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 pt-2 border-t border-slate-100">
-                              {[['hito','人'],['mono','物'],['money','金'],['time','時'],['rival','敵']].map(([k,l]) => (
-                                <div key={k} className="flex items-center gap-1">
-                                  <span className="text-xs text-slate-500 w-4 font-bold">{l}</span>
-                                  {['○','△','✕'].map(v => (
-                                    <button key={v} type="button"
-                                      onClick={() => { const e = {...(c.eval || emptyEval()), [k]: (c.eval?.[k] === v ? '' : v) }; onUpdateEval(c.id, e); }}
-                                      className={`w-6 h-6 text-xs font-bold border transition ${c.eval?.[k] === v ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-100'}`}>{v}</button>
-                                  ))}
-                                </div>
-                              ))}
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {[['hito','人'],['mono','物'],['money','金'],['time','時'],['rival','敵']].map(([k,l]) => {
+                                const val = c.eval?.[k] || '';
+                                const cycle = {'':'○','○':'△','△':'✕','✕':''};
+                                return (
+                                  <button key={k} type="button"
+                                    onClick={() => { const e = {...(c.eval || emptyEval()), [k]: cycle[val]}; onUpdateEval(c.id, e); }}
+                                    className={`text-xs font-bold px-1.5 py-0.5 border transition ${val ? 'border-slate-400 bg-slate-100 text-slate-700 hover:bg-slate-200' : 'border-slate-100 text-slate-300 hover:border-slate-300 hover:text-slate-400'}`}>{l}{val}</button>
+                                );
+                              })}
                             </div>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0 self-start mt-1">
