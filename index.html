@@ -7163,9 +7163,10 @@
                               <span className="text-lg font-black text-slate-800">{c.customerName} 様</span>
                               <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-0.5">{c.belong}</span>
                               {c.status?.customerStatus && (
-                                <span className="text-xs font-bold px-2 py-0.5 bg-slate-100 text-slate-700">
-                                  {c.status.customerStatus}{c.status.rank ? `（${c.status.rank}）` : ''}
-                                </span>
+                                <span className="text-xs font-bold px-2 py-0.5 bg-slate-100 text-slate-700">{c.status.customerStatus}</span>
+                              )}
+                              {c.status?.rank && (
+                                <span className="text-xs font-bold px-2 py-0.5 border border-slate-400 text-slate-700">{c.status.rank}ランク</span>
                               )}
                             </div>
                             <div className="flex items-center gap-4 mt-1 text-sm text-slate-500 flex-wrap">
@@ -7299,24 +7300,22 @@
                         <div className="flex gap-1 flex-wrap">
                           {['限定会員', '建築申込', '契約'].map(s => (
                             <button key={s} type="button"
-                              onClick={() => setStatusData(p => ({...p, customerStatus: p.customerStatus===s?'':s, rank: s!=='限定会員'?'':p.rank, contractDate: s!=='契約'?'':p.contractDate}))}
+                              onClick={() => setStatusData(p => ({...p, customerStatus: p.customerStatus===s?'':s, contractDate: s!=='契約'?'':p.contractDate}))}
                               className={`px-3 py-1 text-sm border transition ${
                                 statusData.customerStatus === s ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
                               }`}>{s}</button>
                           ))}
                         </div>
                       </div>
-                      {statusData.customerStatus === '限定会員' && (
-                        <div>
-                          <p className="text-xs text-slate-400 mb-1">ランク</p>
-                          <div className="flex gap-1">
-                            {['A','B','C','D'].map(r => (
-                              <button key={r} type="button" onClick={() => setStatusData(p => ({...p, rank: p.rank===r?'':r}))}
-                                className={`w-9 h-9 text-sm border font-bold transition ${statusData.rank===r?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{r}</button>
-                            ))}
-                          </div>
+                      <div>
+                        <p className="text-xs text-slate-400 mb-1">ランク</p>
+                        <div className="flex gap-1">
+                          {['A','B','C','D'].map(r => (
+                            <button key={r} type="button" onClick={() => setStatusData(p => ({...p, rank: p.rank===r?'':r}))}
+                              className={`w-9 h-9 text-sm border font-bold transition ${statusData.rank===r?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{r}</button>
+                          ))}
                         </div>
-                      )}
+                      </div>
                       {statusData.customerStatus === '契約' && (
                         <div>
                           <p className="text-xs text-slate-400 mb-1">契約日</p>
