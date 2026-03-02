@@ -30,27 +30,17 @@
         .markdown-body strong { color: #2563eb; }
         @media print {
             @page { size: A4 portrait; margin: 8mm; }
-            body { background: white !important; margin: 0 !important; }
 
-            /* 非印刷要素を非表示 */
-            .no-print { display: none !important; }
+            /* サイドバー・ヘッダー含め全要素を非表示 */
+            body * { visibility: hidden !important; }
 
-            /* 外側コンテナをリセット */
-            .karte-editor-outer {
-                background: white !important;
-                padding: 0 !important;
-                min-height: 0 !important;
-            }
-            .karte-editor-inner {
-                max-width: 100% !important;
-                margin: 0 !important;
-                padding: 0 !important;
-            }
-
-            /* 印刷エリア本体 */
+            /* カルテ印刷エリアだけ表示 */
             .karte-print-area {
-                position: static !important;
-                width: 100% !important;
+                visibility: visible !important;
+                position: absolute !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 194mm !important;
                 overflow: visible !important;
                 box-shadow: none !important;
                 border: none !important;
@@ -58,6 +48,7 @@
                 border-radius: 0 !important;
                 background: white !important;
             }
+            .karte-print-area * { visibility: visible !important; }
 
             /* セクション（B・C）でページ区切り */
             .karte-page-break {
@@ -69,7 +60,6 @@
             table { page-break-inside: auto !important; border-collapse: collapse !important; }
             tr { page-break-inside: avoid !important; page-break-after: auto !important; }
             thead { display: table-header-group !important; }
-            tfoot { display: table-footer-group !important; }
         }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
