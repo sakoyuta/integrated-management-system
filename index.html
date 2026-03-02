@@ -6811,7 +6811,7 @@
           rank: '',            // 'A' | 'B' | 'C' | 'D'
           contractDate: '',
         });
-        const emptyEval = () => ({ hito: '', mono: '' });
+        const emptyEval = () => ({ hito: '', mono: '', money: '', time: '', rival: '' });
 
         // --- アイコン ---
         const KIcMap    = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>;
@@ -6886,8 +6886,7 @@
                               {c.status?.contractDate && (<><span className="text-slate-300">|</span><span>契約日: <span className="font-bold text-slate-700">{c.status.contractDate}</span></span></>)}
                             </div>
                             <div className="flex flex-wrap gap-1 mt-1.5">
-                              {c.eval?.hito && <span className="text-xs font-bold px-1.5 py-0.5 border border-slate-300 text-slate-600">人 {c.eval.hito}</span>}
-                              {c.eval?.mono && <span className="text-xs font-bold px-1.5 py-0.5 border border-slate-300 text-slate-600">物 {c.eval.mono}</span>}
+                              {[['hito','人'],['mono','物'],['money','金'],['time','時'],['rival','敵']].map(([k,l]) => c.eval?.[k] && <span key={k} className="text-xs font-bold px-1.5 py-0.5 border border-slate-300 text-slate-600">{l} {c.eval[k]}</span>)}
                             </div>
                           </div>
                           <button onClick={() => onEdit(c.id)} className="bg-slate-700 text-white px-4 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-800 transition flex-shrink-0"><KIcEdit /> 開く</button>
@@ -7321,11 +7320,14 @@
                         </div>
                       )}
                     </div>
-                    {/* 【人】人・物 */}
+                    {/* 【人】人・物・金・時・敵 */}
                     <div className="pl-6 space-y-2 flex-1 min-w-[180px]">
-                      <p className="text-xs font-bold text-slate-500 pb-1 border-b border-slate-200">【人】人・物</p>
+                      <p className="text-xs font-bold text-slate-500 pb-1 border-b border-slate-200">【人】人・物・金・時・敵</p>
                       <KOATSelector label="人" value={evalData.hito} onChange={v => setEvalData(p => ({...p, hito: v}))} />
                       <KOATSelector label="物" value={evalData.mono} onChange={v => setEvalData(p => ({...p, mono: v}))} />
+                      <KOATSelector label="金" value={evalData.money} onChange={v => setEvalData(p => ({...p, money: v}))} />
+                      <KOATSelector label="時" value={evalData.time} onChange={v => setEvalData(p => ({...p, time: v}))} />
+                      <KOATSelector label="敵" value={evalData.rival} onChange={v => setEvalData(p => ({...p, rival: v}))} />
                     </div>
                   </div>
                 </div>
@@ -7754,7 +7756,7 @@
               createdAt: val.createdAt || new Date().toISOString(),
               updatedAt: val.updatedAt || new Date().toISOString(),
               status,
-              eval: (() => { const e = val.eval || {}; if ('person' in e || 'money' in e || 'time' in e || 'rival' in e) { return { hito: e.person || '', mono: '' }; } return { hito: e.hito || '', mono: e.mono || '' }; })(),
+              eval: (() => { const e = val.eval || {}; if ('person' in e) { return { hito: e.person || '', mono: e.mono || '', money: e.money || '', time: e.time || '', rival: e.rival || '' }; } return { hito: e.hito || '', mono: e.mono || '', money: e.money || '', time: e.time || '', rival: e.rival || '' }; })(),
               karteData: val.karteData || emptyKarteData(),
             };
           };
