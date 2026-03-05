@@ -7304,7 +7304,7 @@
         // --- カルテ編集画面 ---
         const KKarteEditor = ({ customer, onBack, onSave, onUpdateInfo, onUpdateStatus }) => {
           const [activeTab, setActiveTab] = useState('flow');
-          const [data, setData] = useState(customer.karteData);
+          const [data, setData] = useState(customer.karteData || emptyKarteData());
           const [saveMsg, setSaveMsg] = useState('');
           const [infoEdit, setInfoEdit] = useState(false);
           const [infoForm, setInfoForm] = useState({ staffName: customer.staffName, belong: customer.belong, customerName: customer.customerName });
@@ -7329,8 +7329,13 @@
             const errKarte = await onSave(customer.id, data);
             const errStatus = await onUpdateStatus(customer.id, statusData, evalData);
             const err = errKarte || errStatus;
-            if (err) { setSaveMsg('保存失敗 ❌ ' + err); } else { setSaveMsg('保存しました ✅'); }
-            setTimeout(() => setSaveMsg(''), 3000);
+            if (err) {
+              setSaveMsg('保存失敗 ❌ ' + err);
+              alert('保存に失敗しました: ' + err + '\n\nFirebaseのルールやネットワーク接続を確認してください。');
+            } else {
+              setSaveMsg('保存しました ✅');
+            }
+            setTimeout(() => setSaveMsg(''), 5000);
           };
           const th = "border border-slate-300 bg-slate-100 p-1 text-[10px] font-bold text-center";
           const td = "border border-slate-300 p-1 text-[10px] min-h-[1.5rem]";
@@ -7943,6 +7948,7 @@
           };
 
           const handleSave = async (id, karteData) => {
+            if (!karteData) return '保存データが不正です';
             try {
               const updatedAt = new Date().toISOString();
               await database.ref('karte/customers/' + id).update({ karteData, updatedAt });
