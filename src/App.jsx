@@ -7776,6 +7776,13 @@ import { marked } from 'marked';
           const [dbLoading, setDbLoading] = useState(false);
           const [returnScreen, setReturnScreen] = useState('list');
 
+          // Firebase stores arrays as objects {0:..., 1:...} — convert back to arrays
+          const toArr = (v, fallback) => {
+            if (Array.isArray(v)) return v;
+            if (v && typeof v === 'object') return Object.values(v);
+            return fallback;
+          };
+
           const fromDB = (key, val) => {
             let status = val.status || emptyStatus();
             if ('rankA' in status || 'rankB' in status || 'applyBuilding' in status) {
@@ -7790,7 +7797,15 @@ import { marked } from 'marked';
               updatedAt: val.updatedAt || new Date().toISOString(),
               status,
               eval: (() => { const e = val.eval || {}; if ('person' in e) { return { hito: e.person || '', mono: e.mono || '', money: e.money || '', time: e.time || '', rival: e.rival || '' }; } return { hito: e.hito || '', mono: e.mono || '', money: e.money || '', time: e.time || '', rival: e.rival || '' }; })(),
-              karteData: val.karteData || emptyKarteData(),
+              karteData: (() => {
+                const kd = val.karteData || emptyKarteData();
+                const empty = emptyKarteData();
+                return {
+                  ...kd,
+                  basic: kd.basic ? { ...kd.basic, familyMembers: toArr(kd.basic.familyMembers, empty.basic.familyMembers) } : empty.basic,
+                  landDetail: kd.landDetail ? { ...kd.landDetail, priorities: toArr(kd.landDetail.priorities, empty.landDetail.priorities), ng: toArr(kd.landDetail.ng, empty.landDetail.ng) } : empty.landDetail,
+                };
+              })(),
             };
           };
 
@@ -7798,12 +7813,16 @@ import { marked } from 'marked';
             setDbLoading(true);
             const customersRef = database.ref('karte/customers');
             customersRef.on('value', snap => {
-              if (snap.exists()) {
-                const arr = [];
-                snap.forEach(child => arr.push(fromDB(child.key, child.val())));
-                arr.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-                setCustomers(arr);
-              } else { setCustomers([]); }
+              try {
+                if (snap.exists()) {
+                  const arr = [];
+                  snap.forEach(child => {
+                    try { arr.push(fromDB(child.key, child.val())); } catch(e) { console.error('fromDB error:', e); }
+                  });
+                  arr.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+                  setCustomers(arr);
+                } else { setCustomers([]); }
+              } catch(e) { console.error('customers listener error:', e); }
               setDbLoading(false);
             });
             const branchesRef = database.ref('karte/branches');
@@ -7891,6 +7910,7 @@ import { marked } from 'marked';
               {screen === 'list' && <KCustomerList customers={activeCustomers} onNew={() => setShowNewModal(true)} onEdit={handleEdit} onDelete={handleDelete} dbLoading={dbLoading} branches={branches} onAddBranch={handleAddBranch} onDeleteBranch={handleDeleteBranch} contractCount={contractedCustomers.length} onGoContracts={() => setScreen('contracts')} />}
               {screen === 'contracts' && <KContractList customers={contractedCustomers} onEdit={(id) => handleEdit(id, 'contracts')} onBack={() => setScreen('list')} />}
               {screen === 'edit' && currentCustomer && <KKarteEditor customer={currentCustomer} onBack={handleBack} onSave={handleSave} onUpdateInfo={handleUpdateInfo} onUpdateStatus={handleUpdateStatus} />}
+              {screen === 'edit' && !currentCustomer && <KCustomerList customers={activeCustomers} onNew={() => setShowNewModal(true)} onEdit={handleEdit} onDelete={handleDelete} dbLoading={dbLoading} branches={branches} onAddBranch={handleAddBranch} onDeleteBranch={handleDeleteBranch} contractCount={contractedCustomers.length} onGoContracts={() => setScreen('contracts')} />}
             </>
           );
         };
