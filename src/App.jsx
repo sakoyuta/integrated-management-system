@@ -7830,6 +7830,7 @@ import { marked } from 'marked';
               } catch(e) { console.error('customers listener error:', e); }
               setDbLoading(false);
             });
+            const DEFAULT_BRANCHES = ['豊中オフィス', '奈良オフィス', '京都オフィス', '神戸オフィス'];
             const branchesRef = database.ref('karte/branches');
             branchesRef.on('value', snap => {
               if (snap.exists()) {
@@ -7837,7 +7838,15 @@ import { marked } from 'marked';
                 snap.forEach(child => arr.push({ id: child.key, ...child.val() }));
                 arr.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
                 setBranches(arr);
-              } else { setBranches([]); }
+              } else {
+                setBranches([]);
+                // 初回のみデフォルト拠点を自動登録
+                const now = new Date().toISOString();
+                DEFAULT_BRANCHES.forEach((name, i) => {
+                  const ref = database.ref('karte/branches').push();
+                  ref.set({ name, createdAt: new Date(Date.now() + i).toISOString() });
+                });
+              }
             });
             return () => { customersRef.off(); branchesRef.off(); };
           }, []);
@@ -7845,7 +7854,8 @@ import { marked } from 'marked';
           const handleAddBranch = async (name) => {
             try {
               const now = new Date().toISOString();
-              await database.ref('karte/branches').push({ name, createdAt: now });
+              const ref = database.ref('karte/branches').push();
+              await ref.set({ name, createdAt: now });
               return null;
             } catch (e) { return e.message; }
           };
