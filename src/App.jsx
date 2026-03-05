@@ -7906,11 +7906,14 @@ import { marked } from 'marked';
 
           return (
             <>
+              <div style={{position:'fixed',bottom:8,right:8,background:'rgba(0,0,0,0.75)',color:'white',fontSize:11,padding:'4px 8px',borderRadius:4,zIndex:9999,pointerEvents:'none'}}>
+                screen:{screen} | customers:{customers.length} | id:{currentId||'none'} | loading:{String(dbLoading)}
+              </div>
               {showNewModal && <KNewCustomerModal onClose={() => setShowNewModal(false)} onCreate={handleCreate} branches={branches} />}
               {screen === 'list' && <KCustomerList customers={activeCustomers} onNew={() => setShowNewModal(true)} onEdit={handleEdit} onDelete={handleDelete} dbLoading={dbLoading} branches={branches} onAddBranch={handleAddBranch} onDeleteBranch={handleDeleteBranch} contractCount={contractedCustomers.length} onGoContracts={() => setScreen('contracts')} />}
               {screen === 'contracts' && <KContractList customers={contractedCustomers} onEdit={(id) => handleEdit(id, 'contracts')} onBack={() => setScreen('list')} />}
               {screen === 'edit' && currentCustomer && <KKarteEditor customer={currentCustomer} onBack={handleBack} onSave={handleSave} onUpdateInfo={handleUpdateInfo} onUpdateStatus={handleUpdateStatus} />}
-              {screen === 'edit' && !currentCustomer && <KCustomerList customers={activeCustomers} onNew={() => setShowNewModal(true)} onEdit={handleEdit} onDelete={handleDelete} dbLoading={dbLoading} branches={branches} onAddBranch={handleAddBranch} onDeleteBranch={handleDeleteBranch} contractCount={contractedCustomers.length} onGoContracts={() => setScreen('contracts')} />}
+              {screen === 'edit' && !currentCustomer && <div style={{padding:20,color:'red',fontWeight:'bold'}}>⚠ currentCustomerが見つかりません (id:{currentId})<br/>customers:{customers.map(c=>c.id).join(',')}<br/><button onClick={()=>{setScreen('list');setCurrentId(null);}}>一覧に戻る</button></div>}
             </>
           );
         };
