@@ -1,0 +1,8074 @@
+import React, { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import 'firebase/compat/database';
+import 'firebase/compat/storage';
+import { marked } from 'marked';
+
+
+        // ==========================================
+        //  0. Error Boundary & Hooks
+        // ==========================================
+
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) { return { hasError: true, error }; }
+            componentDidCatch(error, errorInfo) { console.error("Uncaught error:", error, errorInfo); }
+
+            handleReset = () => {
+                try {
+                    Object.keys(localStorage).forEach(key => {
+                        if (key.startsWith('ghouse_')) localStorage.removeItem(key);
+                    });
+                    window.location.reload();
+                } catch (e) {
+                    console.error("Reset failed", e);
+                }
+            };
+
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="flex items-center justify-center h-full min-h-[300px] bg-red-50 p-6 rounded-lg border border-red-200 m-4">
+                            <div className="text-center max-w-md">
+                                <h2 className="text-lg font-bold text-red-700 mb-2">エラーが発生しました</h2>
+                                <p className="text-sm text-gray-600 mb-4">データの不整合が起きている可能性があります。</p>
+                                <div className="bg-white p-2 rounded border border-red-100 text-left text-xs text-red-500 overflow-auto max-h-24 mb-4 font-mono">
+                                    {this.state.error?.toString()}
+                                </div>
+                                <button onClick={this.handleReset} className="text-sm bg-white border border-red-300 text-red-700 px-4 py-2 rounded hover:bg-red-50 transition">
+                                    データをリセットして復旧
+                                </button>
+                            </div>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
+
+        // ==========================================
+        //  Firebase Configuration & Initialization
+        // ==========================================
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCxQFyB8h8ChcJJsEq7s7-_hVCzbpfmkwA",
+            authDomain: "ghouse-management.firebaseapp.com",
+            databaseURL: "https://ghouse-management-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "ghouse-management",
+            storageBucket: "ghouse-management.firebasestorage.app",
+            messagingSenderId: "790035889164",
+            appId: "1:790035889164:web:e0fe2f032dd68acdb3c229",
+            measurementId: "G-8EGTWS4HZM"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const database = firebase.database();
+        const storage = firebase.storage();
+
+        const EMAILJS_SERVICE_ID = 'service_3utqcmd';
+        const EMAILJS_TEMPLATE_ID = 'template_ulntgud';
+        const EMAILJS_PUBLIC_KEY = 'Q4rIzEO1L9zYTGd7X';
+
+        // パスワード自動生成（英数字12文字）
+        const generatePassword = () => {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+            return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        };
+        const auth = firebase.auth();
+        const googleProvider = new firebase.auth.GoogleAuthProvider();
+        // ログイン/初期設定ハンドラが処理中の場合にonAuthStateChangedの干渉を防ぐフラグ
+        let _authHandlerActive = false;
+
+        // Firebase Storage helper functions
+        const uploadToStorage = async (file, path, timeoutMs = 30000) => {
+            console.log('=== Starting upload to Storage ===');
+            console.log('File:', file.name, 'Size:', file.size, 'Type:', file.type);
+            console.log('Path:', path);
+
+            return new Promise((resolve, reject) => {
+                const timeoutId = setTimeout(() => {
+                    console.error('Upload timed out after', timeoutMs, 'ms');
+                    reject(new Error('アップロードがタイムアウトしました。Firebase Storageの設定を確認してください。'));
+                }, timeoutMs);
+
+                try {
+                    const storageRef = storage.ref(path);
+                    console.log('Storage ref created, starting upload...');
+
+                    const uploadTask = storageRef.put(file);
+
+                    uploadTask.on('state_changed',
+                        (snapshot) => {
+                            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                            console.log('Upload progress:', progress.toFixed(1) + '%');
+                        },
+                        (error) => {
+                            clearTimeout(timeoutId);
+                            console.error('=== Storage Upload Error ===');
+                            console.error('Error code:', error.code);
+                            console.error('Error message:', error.message);
+                            reject(error);
+                        },
+                        async () => {
+                            clearTimeout(timeoutId);
+                            console.log('Upload completed, getting download URL...');
+                            try {
+                                const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
+                                console.log('Download URL obtained:', downloadURL);
+                                resolve(downloadURL);
+                            } catch (urlError) {
+                                console.error('Failed to get download URL:', urlError);
+                                reject(urlError);
+                            }
+                        }
+                    );
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    console.error('Failed to start upload:', error);
+                    reject(error);
+                }
+            });
+        };
+
+        // Fallback: Convert file to base64 data URL (for when Storage fails)
+        const fileToDataUrl = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        };
+
+        const deleteFromStorage = async (path) => {
+            try {
+                const storageRef = storage.ref(path);
+                await storageRef.delete();
+                console.log('✓ File deleted from Storage:', path);
+            } catch (error) {
+                console.error('✗ Failed to delete from Storage:', error);
+            }
+        };
+
+        // Firebase State Hook - Replaces usePersistentState with Firebase sync
+        // Enhanced with double-check protection against accidental data overwrites
+        const useFirebaseState = (path, initialValue) => {
+            const [state, setState] = useState(initialValue);
+            const [isLoading, setIsLoading] = useState(true);
+            const hasInitializedRef = useRef(false);
+            const dataExistsRef = useRef(false); // Track if data ever existed
+
+            useEffect(() => {
+                const dbRef = database.ref(path);
+
+                // Safety timeout - force loading to complete after 5 seconds
+                // BUT never save initial value on timeout - just mark as loaded
+                const safetyTimeout = setTimeout(() => {
+                    console.warn(`Safety timeout triggered for ${path} - forcing loading complete (read-only mode)`);
+                    setIsLoading(false);
+                    if (!hasInitializedRef.current) {
+                        // On timeout, use initial value locally but DON'T save to Firebase
+                        // This prevents overwriting data if Firebase is just slow
+                        setState(initialValue);
+                        hasInitializedRef.current = true;
+                    }
+                }, 5000);
+
+                // Listen for realtime updates
+                const listener = dbRef.on('value', snapshot => {
+                    try {
+                        clearTimeout(safetyTimeout); // Clear safety timeout since listener fired
+                        const data = snapshot.val();
+                        console.log(`=== Firebase Listener Triggered for ${path} ===`);
+                        console.log('Data from Firebase:', data ? 'exists' : 'null');
+                        console.log('hasInitializedRef.current:', hasInitializedRef.current);
+                        console.log('dataExistsRef.current:', dataExistsRef.current);
+
+                        if (data !== null && data !== undefined) {
+                            console.log(`✓ Firebase data exists for ${path}, loading...`);
+                            dataExistsRef.current = true; // Mark that data exists
+                            try {
+                                console.log('Data keys:', Object.keys(data || {}).join(', '));
+                            } catch (e) {
+                                console.log('Could not get data keys');
+                            }
+                            setState(data);
+                            hasInitializedRef.current = true;
+                            setIsLoading(false);
+                        } else if (!hasInitializedRef.current && !dataExistsRef.current) {
+                            // Only save initial value if data NEVER existed
+                            // Double-check by doing another read before writing
+                            console.log(`⚠ No data in Firebase for ${path}, verifying before saving initial value...`);
+                            dbRef.once('value').then(verifySnapshot => {
+                                const verifyData = verifySnapshot.val();
+                                if (verifyData !== null && verifyData !== undefined) {
+                                    // Data appeared between checks - use it
+                                    console.log(`✓ Data found on verification for ${path}`);
+                                    setState(verifyData);
+                                    dataExistsRef.current = true;
+                                } else {
+                                    // Truly empty - safe to save initial value
+                                    console.log(`⚠ Confirmed no data for ${path}, saving initial value`);
+                                    setState(initialValue);
+                                    dbRef.set(initialValue).then(() => {
+                                        console.log(`✓ Initial value saved to Firebase for ${path}`);
+                                    }).catch(error => {
+                                        console.error('✗ Failed to save initial value:', error);
+                                    });
+                                }
+                                hasInitializedRef.current = true;
+                                setIsLoading(false);
+                            });
+                        } else {
+                            console.log(`⚠ Firebase returned null but data previously existed or already initialized for ${path}`);
+                            // Don't overwrite - data might have been deleted accidentally
+                            setIsLoading(false);
+                        }
+                    } catch (error) {
+                        console.error('Error in Firebase listener:', error);
+                        // On error, use initial value locally but DON'T save to Firebase
+                        setState(initialValue);
+                        setIsLoading(false);
+                        hasInitializedRef.current = true;
+                    }
+                }, error => {
+                    console.error('✗ Firebase load error:', error);
+                    clearTimeout(safetyTimeout);
+                    // On error, use initial value locally but DON'T save to Firebase
+                    setState(initialValue);
+                    setIsLoading(false);
+                    hasInitializedRef.current = true;
+                });
+
+                return () => {
+                    clearTimeout(safetyTimeout);
+                    dbRef.off('value', listener);
+                };
+            }, [path]);
+
+            const updateState = (newState) => {
+                let finalState;
+                setState(prevState => {
+                    finalState = typeof newState === 'function' ? newState(prevState) : newState;
+
+                    // Save to Firebase immediately with the computed state
+                    const dbRef = database.ref(path);
+                    console.log('=== Saving to Firebase ===');
+                    console.log('Path:', path);
+
+                    try {
+                        dbRef.set(finalState)
+                            .then(() => {
+                                console.log('✓ Firebase save successful');
+                            })
+                            .catch(error => {
+                                console.error('✗ Firebase save error:', error);
+                                console.error('Error details:', error.message, error.code);
+                            });
+                    } catch (error) {
+                        console.error('✗ Firebase validation error (data too large):', error);
+                        alert('データサイズが大きすぎてFirebaseに保存できません。ファイルは5MB以下にしてください。');
+                    }
+
+                    return finalState;
+                });
+            };
+
+            return [state, updateState, isLoading];
+        };
+
+        // LocalStorage fallback for non-critical data (videos)
+        const usePersistentState = (key, initialValue) => {
+            const [state, setState] = useState(() => {
+                try {
+                    const item = localStorage.getItem(key);
+                    return item ? JSON.parse(item) : initialValue;
+                } catch (error) {
+                    return initialValue;
+                }
+            });
+            useEffect(() => {
+                try {
+                    localStorage.setItem(key, JSON.stringify(state));
+                } catch (e) {
+                    console.error(`Error writing localStorage key "${key}":`, e);
+                }
+            }, [key, state]);
+            return [state, setState];
+        };
+
+        // ==========================================
+        //  IndexedDB Helper Functions
+        // ==========================================
+
+        const DB_NAME = 'ghouse_videos';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'videos';
+
+        const openDB = () => {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    }
+                };
+            });
+        };
+
+        const saveVideoToDB = async (id, videoBlob) => {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.put({ id, blob: videoBlob });
+                request.onsuccess = () => resolve(id);
+                request.onerror = () => reject(request.error);
+            });
+        };
+
+        const getVideoFromDB = async (id) => {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.get(id);
+                request.onsuccess = () => resolve(request.result?.blob);
+                request.onerror = () => reject(request.error);
+            });
+        };
+
+        const deleteVideoFromDB = async (id) => {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.delete(id);
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        };
+
+        const AI_SYSTEM_PROMPT = `あなたは高性能注文住宅「G HOUSE」の優秀な営業マネージャーです。`;
+
+        // ==========================================
+        //  1. Icons & Shared UI Components
+        // ==========================================
+
+        // Simple icon component using Unicode emoji - avoids DOM manipulation conflicts
+        const LucideIcon = ({ name, className, size = 20 }) => {
+            const iconMap = {
+                'users': '👥',
+                'file-text': '📄',
+                'dollar-sign': '💰',
+                'graduation-cap': '🎓',
+                'grip-vertical': '⋮',
+                'trash-2': '🗑️',
+                'upload': '⬆️',
+                'link': '🔗',
+                'plus': '➕',
+                'alert-triangle': '⚠️',
+                'x': '❌',
+                'check': '✓',
+                'edit': '✏️',
+                'save': '💾',
+                'home': '🏠',
+                'settings': '⚙️',
+                'search': '🔍',
+                'menu': '☰'
+            };
+
+            const icon = iconMap[name] || '●';
+
+            return (
+                <span
+                    className={className}
+                    style={{
+                        fontSize: size,
+                        display: 'inline-block',
+                        lineHeight: 1,
+                        verticalAlign: 'middle'
+                    }}
+                >
+                    {icon}
+                </span>
+            );
+        };
+
+        const VideoPlayer = ({ videoId, className }) => {
+            const [videoURL, setVideoURL] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const loadVideo = async () => {
+                    try {
+                        const blob = await getVideoFromDB(videoId);
+                        if (blob) {
+                            const url = URL.createObjectURL(blob);
+                            setVideoURL(url);
+                        }
+                    } catch (error) {
+                        console.error('動画読み込みエラー:', error);
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+                loadVideo();
+                return () => {
+                    if (videoURL) URL.revokeObjectURL(videoURL);
+                };
+            }, [videoId]);
+
+            if (loading) {
+                return <div className="flex items-center justify-center p-4 text-gray-500 text-xs">動画を読み込み中...</div>;
+            }
+
+            if (!videoURL) {
+                return <div className="flex items-center justify-center p-4 text-red-500 text-xs">動画の読み込みに失敗しました</div>;
+            }
+
+            return <video src={videoURL} controls className={className} />;
+        };
+
+        const Toast = ({ message, type, onDismiss }) => {
+            useEffect(() => {
+                if (message) {
+                    const timer = setTimeout(onDismiss, 3000);
+                    return () => clearTimeout(timer);
+                }
+            }, [message, onDismiss]);
+
+            if (!message) return null;
+            const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
+            return ( <div className="fixed top-5 right-5 z-50 animate-fade-in"> <div className={`${bgColor} text-white font-bold rounded-lg shadow-lg py-3 px-5 flex items-center`}> <span className="flex-grow">{message}</span> </div> </div> );
+        };
+
+        const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50 transition-opacity">
+                    <div className="bg-white rounded-lg shadow-xl max-w-sm w-full mx-4 transform transition-all animate-fade-in">
+                        <div className="p-6">
+                            <div className="flex items-start">
+                                <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                                    <LucideIcon name="alert-triangle" className="text-red-600" size={24} />
+                                </div>
+                                <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                                    <h3 className="text-lg leading-6 font-medium text-gray-900">{title}</h3>
+                                    <div className="mt-2"> <p className="text-sm text-gray-500 whitespace-pre-wrap">{message}</p> </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg">
+                            <button type="button" onClick={onConfirm} className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm">削除</button>
+                            <button type="button" onClick={onCancel} className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">キャンセル</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const AutoResizeTextarea = ({ value, onChange, placeholder, className = "" }) => {
+            const textareaRef = useRef(null);
+            useLayoutEffect(() => {
+                const el = textareaRef.current;
+                if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; }
+            }, [value]);
+            return ( <textarea ref={textareaRef} value={value || ''} onChange={onChange} placeholder={placeholder} className={`w-full p-2 border border-gray-300 rounded-md shadow-sm resize-none focus:ring-blue-500 focus:border-blue-500 text-sm overflow-hidden ${className}`} rows="1" /> );
+        };
+
+        const EditableField = ({ label, iconName, children, onLabelChange, isEditMode }) => (
+            <div>
+                <label className="flex items-center text-sm font-semibold text-gray-500 mb-2">
+                    <LucideIcon name={iconName} size={16} />
+                    {onLabelChange && isEditMode ? (
+                        <input
+                            type="text"
+                            value={label}
+                            onChange={(e) => onLabelChange(e.target.value)}
+                            className="ml-2 border-b border-dashed border-gray-400 bg-transparent focus:border-blue-500 focus:outline-none px-1"
+                        />
+                    ) : (
+                        <span className="ml-2">{label}</span>
+                    )}
+                </label>
+                {children}
+            </div>
+        );
+
+        function dataUrlToBlobUrl(dataUrl) {
+          try {
+            if (!dataUrl) return null;
+            const [header, base64] = dataUrl.split(',');
+            const mime = (header.match(/data:(.*?);base64/) || [])[1] || 'application/pdf';
+            const bin = atob(base64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+            return blobUrl;
+          } catch (e) {
+            console.error("Blob conversion failed", e);
+            return null;
+          }
+        }
+
+        const mockApi = {
+            uploadFile: (file) => {
+                return new Promise((resolve, reject) => {
+                    setTimeout(() => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve({ name: file.name, url: reader.result, storageKey: `materials/${Date.now()}-${file.name}` });
+                        reader.onerror = (error) => reject({ status: 500, message: 'ファイル読み込み中にエラーが発生しました。' });
+                        reader.readAsDataURL(file);
+                    }, 500);
+                });
+            }
+        };
+
+        const ApiKeyModal = ({ isOpen, onClose, onSave }) => {
+            const [apiKey, setApiKey] = useState('');
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+                        <h3 className="text-lg font-bold text-gray-800 mb-4">APIキーの設定</h3>
+                        <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full p-2 border rounded mb-4" placeholder="AIza..." />
+                        <div className="flex justify-end space-x-2">
+                            <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">キャンセル</button>
+                            <button onClick={() => { if(apiKey.trim()) onSave(apiKey.trim()); }} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">保存して閉じる</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const AIConsultModal = ({ isOpen, onClose, apiKey }) => {
+            const [input, setInput] = useState('');
+            const [response, setResponse] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+            if (!isOpen) return null;
+
+            const handleConsult = async () => {
+                if (!input.trim()) return;
+                setIsLoading(true);
+                setResponse('');
+                try {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: AI_SYSTEM_PROMPT + "\n\n【お客様状況】\n" + input }] }] })
+                    });
+                    const data = await res.json();
+                    if (data.error) throw new Error(data.error.message);
+                    setResponse(data.candidates?.[0]?.content?.parts?.[0]?.text || "エラーが発生しました。");
+                } catch (error) { setResponse(`エラー: ${error.message}`); } finally { setIsLoading(false); }
+            };
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl h-[90vh] flex flex-col p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2"><LucideIcon name="brain" className="text-purple-600"/> AI営業コンシェルジュ</h3>
+                            <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                        </div>
+                        <div className="flex-1 flex flex-col md:flex-row gap-6 overflow-hidden">
+                            <div className="flex-1 flex flex-col min-h-0">
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">お客様の状況</label>
+                                <textarea value={input} onChange={(e) => setInput(e.target.value)} className="flex-1 w-full p-4 border rounded-lg resize-none focus:ring-2 focus:ring-purple-500 text-sm" placeholder="例：30代夫婦..." />
+                                <button onClick={handleConsult} disabled={isLoading || !input.trim()} className="mt-4 w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 disabled:bg-gray-300 transition-colors flex justify-center items-center gap-2">{isLoading ? '思考中...' : '相談する'}</button>
+                            </div>
+                            <div className="flex-1 flex flex-col min-h-0 bg-gray-50 rounded-lg border p-4 overflow-y-auto">
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">AIアドバイス</label>
+                                {response ? <div className="markdown-body text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: marked.parse(response) }} /> : <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">相談内容を入力してください</div>}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const RepresentativeManagementModal = ({ isOpen, onClose, salesReps, onAddRep, onUpdateRep, onDeleteRep }) => {
+            const [editingId, setEditingId] = useState(null);
+            const [editingName, setEditingName] = useState('');
+
+            if (!isOpen) return null;
+            if (!salesReps || !Array.isArray(salesReps)) return null;
+
+            const handleStartEdit = (rep) => {
+                setEditingId(rep.id);
+                setEditingName(rep.name);
+            };
+
+            const handleSaveEdit = (repId) => {
+                if (editingName.trim()) {
+                    onUpdateRep(repId, editingName.trim());
+                }
+                setEditingId(null);
+                setEditingName('');
+            };
+
+            const handleCancelEdit = () => {
+                setEditingId(null);
+                setEditingName('');
+            };
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+                        <div className="flex justify-between items-center p-6 border-b border-gray-200">
+                            <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                <LucideIcon name="users" className="text-indigo-600" size={24} />
+                                担当者管理
+                            </h3>
+                            <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-2xl font-bold w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100">
+                                &times;
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-6">
+                            <div className="space-y-3">
+                                {salesReps.map((rep) => (
+                                    <div key={rep.id} className="flex items-center gap-3 p-4 border rounded-lg hover:shadow-md transition-shadow bg-gray-50">
+                                        {editingId === rep.id ? (
+                                            <>
+                                                <input
+                                                    type="text"
+                                                    value={editingName}
+                                                    onChange={(e) => setEditingName(e.target.value)}
+                                                    className="flex-1 px-3 py-2 border border-blue-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                    autoFocus
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') handleSaveEdit(rep.id);
+                                                        if (e.key === 'Escape') handleCancelEdit();
+                                                    }}
+                                                />
+                                                <button
+                                                    onClick={() => handleSaveEdit(rep.id)}
+                                                    className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm font-medium"
+                                                >
+                                                    <LucideIcon name="check" size={16} />
+                                                </button>
+                                                <button
+                                                    onClick={handleCancelEdit}
+                                                    className="px-3 py-2 bg-gray-400 text-white rounded-md hover:bg-gray-500 transition-colors text-sm font-medium"
+                                                >
+                                                    <LucideIcon name="x" size={16} />
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="flex-1 font-medium text-gray-800">{rep.name}</div>
+                                                <button
+                                                    onClick={() => handleStartEdit(rep)}
+                                                    className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium flex items-center gap-1"
+                                                >
+                                                    <LucideIcon name="edit-2" size={14} />
+                                                    編集
+                                                </button>
+                                                <button
+                                                    onClick={() => onDeleteRep(rep.id, rep.name)}
+                                                    className="px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm font-medium flex items-center gap-1"
+                                                >
+                                                    <LucideIcon name="trash-2" size={14} />
+                                                    削除
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="p-6 border-t border-gray-200 bg-gray-50 flex justify-between items-center">
+                            <button
+                                onClick={onAddRep}
+                                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors font-bold shadow-sm"
+                            >
+                                <LucideIcon name="user-plus" size={18} />
+                                新規担当者を追加
+                            </button>
+                            <button
+                                onClick={onClose}
+                                className="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors font-medium"
+                            >
+                                閉じる
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        //  2. Data Definitions (VERSION 18 - FIXED)
+        // ==========================================
+        const salesInitialData = {
+            salesReps: [
+                { id: 'rep1', name: '德田 耕明' }, { id: 'rep2', name: '田畑 美香' }, { id: 'rep3', name: '金村 晃功' },
+                { id: 'rep4', name: '湯谷 憲一' }, { id: 'rep5', name: '光川 実緒' }, { id: 'rep6', name: '西村 貴裕' },
+                { id: 'rep7', name: '吉田 祐' }, { id: 'rep8', name: '小松 大樹' }, { id: 'rep9', name: '稲尾 拓慎' },
+                { id: 'rep10', name: '舟橋 裕也' }, { id: 'rep11', name: '髙木 徹' }, { id: 'rep12', name: '杉村 悠斗' },
+                { id: 'rep13', name: '葉山 一輝' }, { id: 'rep14', name: '阿部 澄人' },
+            ],
+            // IDを 'chap1', 'chap2'... に統一
+            trainingItems: [
+                { id: 'chap1', name: '第一章　原理原則・心構え', category: 'A研修_デビュー', description: '営業としてのマインドセット、G HOUSEの理念、お客様への基本姿勢を学ぶ。\n\n【目標】\n・接客デビューできる状態\n・基本動作の習得', documents: [] },
+                { id: 'chap2', name: '第二章　見学説明会（セミナー）', category: 'A研修_デビュー', description: 'モデルハウス案内やセミナーでのプレゼンテーションスキルを習得する。\n\n【目標】\n・1ヶ月目でセミナーデビュー\n・標準トークの完遂', documents: [] },
+                { id: 'chap3', name: '第三章　個別相談・提案力', category: 'B研修_1_5棟月', description: 'お客様ごとの課題を解決するヒアリング能力と、最適なプランを提案する力を養う。\n\n【目標】\n・実践スキルの習得\n・ヒアリングからの課題特定', documents: [] },
+                { id: 'chap4', name: '第四章　全体像の把握', category: 'B研修_1_5棟月', description: '資金計画、土地探し、契約から引き渡しまでの全体フローを理解し、お客様をリードする。\n\n【目標】\n・トラブルのない進行管理\n・資金計画の精度向上', documents: [] },
+                { id: 'chap5', name: '第五章　性能知識（YouTube学習）・ショールーム見学', category: 'B研修_1_5棟月', description: 'G HOUSEの核心である高性能（気密・断熱・耐震）を深く理解し、他社との差別化を語れるようにする。YouTube動画教材やショールームでの実地学習を含む。\n\n【目標】\n・性能メリットの言語化\n・競合対策', documents: [] },
+                { id: 'chap6', name: '第六章　成長編（2.5棟/月目標）', category: 'C研修_独り立ち', description: '安定して月2.5棟を受注するための高度なクロージング技術と、紹介受注を生む人間力を磨く。C研修を反復継続し、トップセールスを目指す。\n\n【目標】\n・独り立ち\n・コンスタントな受注', documents: [] },
+            ],
+            // Progressのキーも 'chap1', 'chap2'... に統一
+            progress: {
+              rep1: {
+                  chap1: { status: '◎', comments: [{id: 1, date: '2025-09-20', text: '合格。'}] },
+                  chap2: { status: '◎', comments: [] },
+                  chap3: { status: '△', comments: [] },
+                  chap4: { status: '未着手', comments: [] },
+                  chap5: { status: '未着手', comments: [] },
+                  chap6: { status: '未着手', comments: [] }
+              },
+            },
+            // 月次契約数データ（8月起算の年度管理）
+            contracts: {
+                // rep1: { '2024': { '8': 0, '9': 0, '10': 0, '11': 0, '12': 0, '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0 } }
+            }
+        };
+
+        // Flow Data (省略せず記述)
+        const initialFlowSteps = [
+            { id: 101, days: "随時", title: "資料請求対応", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 102, days: "", title: "紹介制度（反響処理）", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 103, days: "", title: "顧客管理", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 104, days: "0日", title: "セミナー資料準備・モデルハウス備品準備", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 1, days: "", title: "モデルハウス見学説明会", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 2, days: "", title: "Gハウス限定会員入会", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 105, days: "", title: "会員へお礼連絡", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 3, days: "30日", title: "初回面談", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 106, days: "", title: "事前審査", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 4, days: "", title: "土地探し", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 5, days: "", title: "いえプロ送客", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 107, days: "60日", title: "商談2", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 108, days: "", title: "商談3", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 6, days: "", title: "建築申込（3万円）", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 109, days: "", title: "建築申込金の返金申し込み対応", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 110, days: "", title: "建築申込金の返金時の営業事務側返金対応", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 111, days: "", title: "新規プラン依頼（業者へ見積もり依頼）", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 7, days: "", title: "プラン提案", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 34, days: "", title: "契約内定 (内定報告)", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `内定が決まった際に下記内容を報告する。\n\n▪️お客様名：\n▪️契約日　：\n▪️時間　_：\n▪️契約場所：\n▪️初回ヒアリング予定日：\n▪️打ち合わせ希望店舗　：\n▪️打ち合わせ可能曜日　：\n▪️間取り確定日数　　　：\n▪️商品名　：\n▪️キャンペーン内容　　：\n▪️2026年7月末完成案件か：\n▪️銀行名　：\n▪️本申し込みに建築確認済証が必要か：\n▪️着工金に建築確認済証が必要か：\n▪️最終金の金消に表題登記完了が必要か：\n▪️最終金の手続きは検査済証が必要か：\n▪️解体業者：\n解体工期：\n▪️測量日　：\n▪️農地転用や市街化調整区域、43申請など：\n▪️土地決済日：\n▪️造成完了日：\n▪️分筆完了日、誰が分筆するか：\n▪️懸念事項　：\n▪️LIFEXの場合のプラン番号：`, manualUrls: [], pdfs: [] },
+            { id: 13, days: "", title: "本審査", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 112, days: "", title: "ダンドリワークの作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 8, days: "", title: "契約前資料の準備", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 113, days: "", title: "請負契約書作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 12, days: "", title: "請負契約", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 114, days: "90日", title: "契約書締結後の処理", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 115, days: "91日", title: "営業コンシェルジュのお客様LINEグループへ参加", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 116, days: "", title: "お申し出発生時の対応", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 117, days: "", title: "各種申請事項", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 118, days: "120日", title: "間取り変更資料作成", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 119, days: "", title: "業者賞金証明書提出", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 120, days: "", title: "変更契約書作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 25, days: "150日", title: "変更契約", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.変更契約時に打合せ時に確定した費用の確認...`, manualUrls: [], pdfs: [] },
+            { id: 121, days: "", title: "仮ポイント依頼", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 122, days: "180日", title: "着工金入金手続き", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 123, days: "", title: "着工金入金", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.変更契約時にご案内しているが着工5日前に...`, manualUrls: [], pdfs: [] },
+            { id: 124, days: "", title: "補助金申請", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 125, days: "210日", title: "上棟金入金手続き", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 126, days: "", title: "上棟金入金", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.手続きは着工金と同様...`, manualUrls: [], pdfs: [] },
+            { id: 127, days: "", title: "上棟立会連絡 (LINEコンシェルジュ)", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "LINEコンシェルジュにてお客様へ上棟立会連絡を行う", manualUrls: [], pdfs: [] },
+            { id: 128, days: "240日", title: "最終立会", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 129, days: "", title: "精算書確認", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 130, days: "270日", title: "最終金入金確認", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.引渡し45日前になれば引渡し案内資料をお客様へ...`, manualUrls: [], pdfs: [] },
+            { id: 131, days: "300日", title: "最終金入金手続き", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 132, days: "", title: "気密測定結果送付 (LINE)", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "気密測定結果をお客様へLINEで送付する", manualUrls: [], pdfs: [] },
+            { id: 133, days: "", title: "引渡しBOX作成", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+            { id: 33, days: "330日", title: "お引渡し", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: `1.鍵渡しの定義は最終金確認後...`, manualUrls: [], pdfs: [] },
+            { id: 134, days: "", title: "引渡し後書類送付", role: "admin", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] },
+        ];
+
+        const bankTemplate = {
+          bankUrl: "",
+          repaymentPeriod: "", loanPlan: "", handlingFee: "", groupCreditLifeInsurance: "", other: "", productSummaryLink: "",
+          buildingCertIssued: "", buildingCertApplication: "", interimInspectionCert: "", completionInspectionCert: "",
+          titleRegistration: "", bridgeLoan: "", constructionContract: "", additionalContract: "", exteriorContract: "",
+          fireInsuranceApplication: "", contactList: "",
+        };
+
+        const initialBankData = [
+          { id: 1, name: "りそな銀行", type: 'main', details: { ...bankTemplate, repaymentPeriod: "40年以内", productSummaryLink: "りそな銀行 商品概要書 202502", buildingCertIssued: "金消までに", completionInspectionCert: "不要", titleRegistration: "実行日までに", bridgeLoan: "りそなにて着工・上棟、つなぎ融資対応可", contactList: "梅田ローンプラザ 06-6312-7680" } },
+          { id: 2, name: "三井住友銀行", type: 'main', details: { ...bankTemplate, repaymentPeriod: "35年以内", loanPlan: "融資手数料型", handlingFee: "借入額の2.2%", productSummaryLink: "三井住友銀行 商品概要書 202503", buildingCertIssued: "建物本申込時", buildingCertApplication: "建物本申込時", interimInspectionCert: "不要", completionInspectionCert: "不要", titleRegistration: "最終金の支払いの目までに", constructionContract: "建物本申込時", additionalContract: "建物本申込時", bridgeLoan: "なし 建物分割して融資可能", other: "・土地本申込時に請負契約不要", contactList: "梅田ローンプラザ 06-7711-0831" } },
+          { id: 3, name: "住信SBIネット銀行", type: 'main', details: { ...bankTemplate, repaymentPeriod: "35年以内", loanPlan: "融資手数料型", handlingFee: "借入額の2.2%", groupCreditLifeInsurance: "50歳以下であれば、\nガン50%・就業不能保障 上乗せなしで追加", productSummaryLink: "住信SBI 商品概要書 202010", buildingCertIssued: "金消の2週間前までに必要", buildingCertApplication: "建確と同じ", interimInspectionCert: "東北背事つなぎ融資の場合、上棟金1週間前までに必要", completionInspectionCert: "実行の4営業日前までに必要", titleRegistration: "実行日の前日までに必要", bridgeLoan: "東北背事 or SBIでのつなぎ融資対応", other: "・抵当権設定の指定司法書士あり（Wing）", contactList: "梅田ローンプラザ 福田さん 080-3021-9887" } },
+          { id: 4, name: "京都銀行", type: 'main', details: { ...bankTemplate, repaymentPeriod: "35年以内", handlingFee: "55,000円", groupCreditLifeInsurance: "45歳以下 がん100 上乗せなし", productSummaryLink: "京都銀行 商品概要書 202012", buildingCertIssued: "着工金の1週間前", interimInspectionCert: "不要", titleRegistration: "実行日までに必要", bridgeLoan: "不要 留保金対応", contactList: "伏見ローンプラザ 075-604-0010" } },
+          { id: 5, name: "池田泉州銀行", type: 'main', details: { ...bankTemplate, repaymentPeriod: "最長50年", loanPlan: "融資手数料型/保証料金利上乗せ型", handlingFee: "原則55,000円", groupCreditLifeInsurance: "就業不能保障 +0.1%\nガン100 +0.2% 三大疾病100 +0.2%", productSummaryLink: "池田泉州銀行 商品概要書 202401", buildingCertIssued: "建物の正式申込までに必要", buildingCertApplication: "1～6面、図面必要", interimInspectionCert: "不要", completionInspectionCert: "不要", titleRegistration: "実行日までに", constructionContract: "正式申込時に必要", additionalContract: "金消までに必要", bridgeLoan: "池泉にて着工・上棟、つなぎ融資", other: "・諸費用50万円まで使途自由金あり", contactList: "池田ローンプラザ 072-753-3741" } },
+          { id: 6, name: "南都銀行", type: 'main', details: { ...bankTemplate, repaymentPeriod: "40年以内", handlingFee: "55,000円", productSummaryLink: "南都銀行 商品概要書 202109", buildingCertIssued: "正式申込までに", completionInspectionCert: "不要", titleRegistration: "最終金の支払いの日までに", bridgeLoan: "なし 建物実行して留保金対応", contactList: "大阪エルプラザ" } },
+          { id: 7, name: "フラット35（ドコモファイナンス）", type: 'main', details: { ...bankTemplate, repaymentPeriod: "最長50年", loanPlan: "固定金利", handlingFee: "2.2%", contactList: "中川さん 090-7130-9253" } },
+          { id: 8, name: "但馬銀行", type: 'main', details: { ...bankTemplate, repaymentPeriod: "40年以内", loanPlan: "保証料金利上乗せ型/手数料定率型", handlingFee: "55,000円～", productSummaryLink: "但馬銀行 商品概要書 202502", buildingCertIssued: "不要", completionInspectionCert: "不要", titleRegistration: "最終金の支払いの日までに", constructionContract: "金消契約時に必要", bridgeLoan: "なし 着工全枠に実行して留保金対応", other: "・金消の3日前までには確認済証が必要", contactList: "西宮ローンセンター 0798-64-6221" } },
+          { id: 9, name: "山陰合同銀行", type: 'main', details: { ...bankTemplate, repaymentPeriod: "最長50年", loanPlan: "", handlingFee: "2.2%", contactList: "西宮支店 岩井さん 080-8247-5879" } },
+
+          { id: 10, name: "紀陽銀行", type: 'sub', details: { ...bankTemplate, repaymentPeriod: "40年以内", loanPlan: "保証料一括前払型/保証料金利上乗せ型", handlingFee: "55,000円", groupCreditLifeInsurance: "がん100 +0.15% 三大疾病100 +0.2%", productSummaryLink: "紀陽銀行 商品概要書 202404", buildingCertIssued: "正式申込時に必要", buildingCertApplication: "正式申込時に必要", completionInspectionCert: "実行日までにあれば送付", titleRegistration: "実行日までに必要", constructionContract: "正式申込時に必要", bridgeLoan: "つなぎ融資ない", contactList: "八戸ノ里住宅ローンセンター 06-6725-3451" } },
+          { id: 11, name: "SBI新生銀行", type: 'sub', details: { ...bankTemplate, repaymentPeriod: "35年以内", other: "詳細は商品概要書を確認" } },
+          { id: 12, name: "イオン銀行", type: 'sub', details: { ...bankTemplate, repaymentPeriod: "35年以内", loanPlan: "融資手数料型", handlingFee: "2.2%", groupCreditLifeInsurance: "がん100 +0.1%", productSummaryLink: "イオン銀行 商品概要書 202404", buildingCertIssued: "金消までに必要", completionInspectionCert: "実行2営業日前", titleRegistration: "登記申請書が必要", other: "指定司法書士あり", contactList: "東京営業所 03-6636-8001" } },
+          { id: 13, name: "香川銀行", type: 'sub', details: { ...bankTemplate, productSummaryLink: "香川銀行 商品概要書 202507", buildingCertIssued: "必要", completionInspectionCert: "支払いまでに", other: "土地と建物一本実行", contactList: "大阪支店" } },
+          { id: 14, name: "関西みらい銀行", type: 'sub', details: { ...bankTemplate, repaymentPeriod: "40年以内", handlingFee: "55,000円", productSummaryLink: "関西みらい銀行 商品概要書 202409", buildingCertIssued: "正式申込時に必要", interimInspectionCert: "不要", titleRegistration: "実行日までに", bridgeLoan: "関西みらいにてつなぎ融資", contactList: "羽曳野JLC" } },
+          { id: 15, name: "京都信用金庫", type: 'sub', details: { ...bankTemplate, repaymentPeriod: "50年以内", handlingFee: "55,000円", groupCreditLifeInsurance: "3大疾病団信付", productSummaryLink: "京信 商品概要書", completionInspectionCert: "実行までに", contactList: "枚方支店 072-846-2111" } },
+          { id: 16, name: "京都中央信用金庫", type: 'sub', details: { ...bankTemplate, repaymentPeriod: "35年以内", handlingFee: "55,000円", interimInspectionCert: "必要", completionInspectionCert: "支払日までに", bridgeLoan: "不要 留保金対応", contactList: "京都中央信用金庫" } },
+          { id: 17, name: "近畿ろうきん", type: 'sub', details: { ...bankTemplate, repaymentPeriod: "最長50年", handlingFee: "なし", groupCreditLifeInsurance: "がん団信 上乗せなし", productSummaryLink: "近畿ろうきん 商品概要書 202410", interimInspectionCert: "必要", titleRegistration: "実行の1週間前", bridgeLoan: "ろうきんにてつなぎ融資", contactList: "枚方支店" } },
+          { id: 18, name: "みずほ銀行", type: 'sub', details: { ...bankTemplate, repaymentPeriod: "35年以内", productSummaryLink: "みずほ銀行 商品概要書 202503", buildingCertIssued: "送付してからの金消", buildingCertApplication: "必要", completionInspectionCert: "なくても可", titleRegistration: "最終金の支払いの日までに", bridgeLoan: "なし 建物分割して融資可能", contactList: "梅田ローンスクエア" } },
+          { id: 19, name: "三菱UFJ銀行", type: 'sub', details: { ...bankTemplate, repaymentPeriod: "35年以内", handlingFee: "2.3%", productSummaryLink: "三菱UFJ銀行 商品概要書 202404", buildingCertIssued: "金消の4営業日前までに必要", completionInspectionCert: "不要", titleRegistration: "不要", bridgeLoan: "なし JIO利用あり", contactList: "神戸営業所" } },
+          { id: 20, name: "ARUHI フラット", type: 'sub', details: { ...bankTemplate, buildingCertIssued: "金消までに確認が必要", completionInspectionCert: "不要 適合証明が必要", other: "指定の司法書士なし", contactList: "" } }
+        ];
+
+        // Initial Debut Training Data
+        const initialDebutTrainingData = {
+          'A研修_デビュー': [
+            { id: 'da1', title: 'ビジネスマナー基礎', pdfs: [], ppts: [], urls: [] },
+            { id: 'da2', title: '会社理念と歴史', pdfs: [], ppts: [], urls: [] },
+            { id: 'da3', title: '接客ロールプレイング基礎', pdfs: [], ppts: [], urls: [] }
+          ],
+          'B研修_1_5棟月': [
+             { id: 'db1', title: '商品知識詳細', pdfs: [], ppts: [], urls: [] },
+             { id: 'db2', title: '資金計画実践', pdfs: [], ppts: [], urls: [] },
+             { id: 'db3', title: '競合比較分析', pdfs: [], ppts: [], urls: [] }
+          ],
+          'C研修_独り立ち': [
+             { id: 'dc1', title: 'クロージング技術', pdfs: [], ppts: [], urls: [] },
+             { id: 'dc2', title: '紹介営業手法', pdfs: [], ppts: [], urls: [] },
+             { id: 'dc3', title: 'トラブルシューティング', pdfs: [], ppts: [], urls: [] }
+          ]
+        };
+
+        const STATUS_OPTIONS = ['未着手', '研修中', 'テスト不合格後再研修', 'テスト合格'];
+        const STATUS_VALUE = { '未着手': 0, '研修中': 0.3, 'テスト不合格後再研修': 0.6, 'テスト合格': 1 };
+        const STATUS_COLOR = {
+          '未着手': { text: 'text-gray-500', bg: 'bg-gray-200' },
+          '研修中': { text: 'text-blue-500', bg: 'bg-blue-200' },
+          'テスト不合格後再研修': { text: 'text-orange-500', bg: 'bg-orange-200' },
+          'テスト合格': { text: 'text-green-500', bg: 'bg-green-200' }
+        };
+
+        // ==========================================
+        //  3. Flow App Components (営業作業フロー)
+        // ==========================================
+
+        const StepSelector = ({ listTitle, steps, selectedStepId, onSelectStep, onAddStep, onRequestDeleteStep, draggingItem, setDraggingItem, dragOverItem, setDragOverItem, onDragSort }) => {
+            const [isEditMode, setIsEditMode] = useState(false);
+
+            const handleDragStart = (e, index) => { if (!isEditMode) return; setDraggingItem(index); e.dataTransfer.effectAllowed = 'move'; };
+            const handleDragEnter = (index) => { if (!isEditMode) return; setDragOverItem(index); };
+            const handleDragEnd = () => { if (!isEditMode) return; if (draggingItem !== null && dragOverItem !== null && draggingItem !== dragOverItem) onDragSort(); setDraggingItem(null); setDragOverItem(null); };
+            const getDragStyle = (index) => { if (!isEditMode) return ''; if (index === draggingItem) return 'opacity-30'; if (index === dragOverItem) return 'border-t-2 border-blue-500'; return ''; };
+
+            return (
+                <div className="w-96 h-full bg-gray-50 border-r border-gray-200 flex flex-col flex-shrink-0">
+                    <div className="p-4 border-b border-gray-200 flex justify-between items-center group bg-white sticky top-0 z-10">
+                        <h2 className="text-lg font-bold text-gray-900 truncate">{listTitle}</h2>
+                        <button onClick={() => setIsEditMode(!isEditMode)} className={`flex-shrink-0 px-3 py-1 rounded text-xs font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>{isEditMode ? '完了' : '編集'}</button>
+                    </div>
+
+                    {isEditMode ? (<>
+                        <div className="flex-1 overflow-y-auto">
+                            {steps.map((step, index) => (
+                                <div key={step.id} draggable={true} onDragStart={(e) => handleDragStart(e, index)} onDragEnter={() => handleDragEnter(index)} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()} className={`flex items-center justify-between p-3 border-b border-gray-200 group bg-white ${getDragStyle(index)} cursor-move`}>
+                                    <div className="flex items-center w-full overflow-hidden">
+                                        <LucideIcon name="grip-vertical" className="mr-2 text-gray-400 flex-shrink-0" size={16} />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex gap-2 items-center mb-1">
+                                                {step.days && <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-1 rounded">{step.days}</span>}
+                                                <span className={`text-[10px] px-1 rounded border ${step.role === 'admin' ? 'bg-white text-gray-500 border-gray-300' : 'bg-amber-800 text-white border-transparent'}`}>{step.role === 'admin' ? '事務' : '営業'}</span>
+                                            </div>
+                                            <div className="text-sm font-medium text-gray-800 truncate">{step.title}</div>
+                                        </div>
+                                        <button onClick={(e) => { e.stopPropagation(); onRequestDeleteStep(step.id, step.title); }} className="text-gray-400 hover:text-red-500 ml-2 p-1"><LucideIcon name="trash-2" size={16} /></button>
+                                    </div>
+                                </div>
+                            ))}
+                            <div className="p-4 border-t border-gray-200 bg-white">
+                                <button onClick={onAddStep} className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors"><LucideIcon name="plus" className="mr-1" size={16} /> ステップを追加</button>
+                            </div>
+                        </div>
+                        </>
+                    ) : (<>
+                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar relative">
+                             <div className="flex gap-2 mb-4 text-[10px] justify-center sticky top-0 bg-gray-50 pb-2 z-10">
+                                <div className="flex items-center"><span className="w-3 h-3 bg-amber-800 rounded mr-1"></span>営業担当</div>
+                                <div className="flex items-center"><span className="w-3 h-3 bg-white border border-gray-400 rounded mr-1"></span>営業事務</div>
+                             </div>
+
+                             <div className="relative pl-4 border-l-2 border-gray-300 min-h-[500px] pb-10 ml-4">
+                                 {steps.map((step, index) => {
+                                     const isTimelinePoint = step.days && step.days.includes("日") && !step.days.includes("随時");
+                                     return (
+                                         <React.Fragment key={step.id}>
+                                             {isTimelinePoint && (
+                                                <div className="absolute -left-[60px] top-2 flex flex-col items-end w-12">
+                                                    <span className="text-[10px] font-bold text-gray-600 bg-gray-200 px-1 rounded whitespace-nowrap">{step.days}</span>
+                                                    <div className="absolute -right-[23px] top-1.5 w-3 h-3 rounded-full bg-blue-500 border-2 border-white"></div>
+                                                </div>
+                                             )}
+                                             {!isTimelinePoint && (
+                                                 <div className="absolute -left-[23px] top-4 w-2 h-2 rounded-full bg-gray-300"></div>
+                                             )}
+
+                                             <div
+                                                  onClick={() => onSelectStep(step.id)}
+                                                  className={`ml-2 p-3 rounded border cursor-pointer text-sm shadow-sm transition-all relative mb-6 ${selectedStepId === step.id ? 'ring-2 ring-blue-500 z-10 scale-[1.02]' : 'hover:shadow-md hover:scale-[1.01]'} ${step.role === 'admin' ? 'bg-white border-gray-300 text-gray-800' : 'bg-amber-800 text-white border-transparent'}`}
+                                             >
+                                                 {step.days && !isTimelinePoint && <span className="text-[10px] font-bold opacity-70 block mb-1">{step.days}</span>}
+                                                 <div className="font-medium">{step.title}</div>
+                                             </div>
+                                         </React.Fragment>
+                                     );
+                                 })}                             </div>
+                        </div>
+                        </>
+                    )}
+                </div>
+            );
+        };
+
+        const StepEditor = ({ step, onUpdateStep, isEditMode }) => {
+          if (!step)
+            return (
+              <div className="flex-1 h-full bg-white rounded-xl shadow-lg border border-gray-200 flex items-center justify-center text-gray-500">
+                ステップを選択してください
+              </div>
+            );
+
+          const defaultLabels = {
+            days: '時期目安',
+            role: '担当',
+            requestTo: '依頼先及び共有先',
+            purpose: '目的',
+            dos: "Do's",
+            donts: "Dont's",
+            procedure: '手順',
+            manualUrls: 'マニュアル (URL)',
+            pdfs: '資料 (PDF)'
+          };
+
+          const getLabel = (field) => (step.labels && step.labels[field]) || defaultLabels[field];
+
+          const handleFieldChange = (field, value) =>
+            onUpdateStep(step.id, { ...step, [field]: value });
+
+          const handleLabelChange = (field, newLabel) => {
+            const newLabels = { ...(step.labels || {}), [field]: newLabel };
+            onUpdateStep(step.id, { ...step, labels: newLabels });
+          };
+
+          return (
+            <div className="flex-1 h-full bg-white rounded-xl shadow-lg border border-gray-200 overflow-y-auto">
+              <div className="p-6">
+                {/* ヘッダー */}
+                <div className="mb-6 pb-4 border-b">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span
+                      className={`px-2 py-1 rounded text-xs font-bold ${
+                        step.role === "admin"
+                          ? "bg-gray-100 text-gray-600 border border-gray-300"
+                          : "bg-amber-800 text-white"
+                      }`}
+                    >
+                      {step.role === "admin" ? "営業事務" : "営業担当"}
+                    </span>
+                    {step.days && (
+                      <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                        {step.days}
+                      </span>
+                    )}
+                  </div>
+
+                  {isEditMode ? (
+                    <input
+                      type="text"
+                      value={step.title}
+                      onChange={(e) => handleFieldChange("title", e.target.value)}
+                      className="text-2xl font-bold text-gray-900 w-full border-b border-transparent focus:border-blue-500 focus:outline-none py-1"
+                    />
+                  ) : (
+                    <h2 className="text-2xl font-bold text-gray-900 py-1">{step.title}</h2>
+                  )}
+                </div>
+
+                {/* 本文 */}
+                {isEditMode ? (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="flex items-center text-sm font-semibold text-gray-500 mb-1">
+                          <LucideIcon name="calendar" size={14} className="mr-1"/>
+                          {isEditMode ? (
+                            <input
+                              type="text"
+                              value={getLabel('days')}
+                              onChange={(e) => handleLabelChange('days', e.target.value)}
+                              className="border-b border-dashed border-gray-400 bg-transparent focus:border-blue-500 focus:outline-none px-1"
+                            />
+                          ) : getLabel('days')}
+                        </label>
+                        <input
+                          type="text"
+                          value={step.days || ''}
+                          onChange={(e) => handleFieldChange('days', e.target.value)}
+                          className="w-full p-2 border border-gray-300 rounded text-sm"
+                          placeholder="例: 30日"
+                        />
+                      </div>
+                      <div>
+                        <label className="flex items-center text-sm font-semibold text-gray-500 mb-1">
+                          <LucideIcon name="user" size={14} className="mr-1"/>
+                          {isEditMode ? (
+                            <input
+                              type="text"
+                              value={getLabel('role')}
+                              onChange={(e) => handleLabelChange('role', e.target.value)}
+                              className="border-b border-dashed border-gray-400 bg-transparent focus:border-blue-500 focus:outline-none px-1"
+                            />
+                          ) : getLabel('role')}
+                        </label>
+                        <select
+                          value={step.role || 'sales'}
+                          onChange={(e) => handleFieldChange('role', e.target.value)}
+                          className="w-full p-2 border border-gray-300 rounded text-sm"
+                        >
+                          <option value="sales">営業担当</option>
+                          <option value="admin">営業事務</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <EditableField label={getLabel('requestTo')} iconName="users" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('requestTo', v)}>
+                      <AutoResizeTextarea
+                        value={step.requestTo || ''}
+                        onChange={(e) => handleFieldChange('requestTo', e.target.value)}
+                        placeholder="依頼先及び共有先を入力..."
+                      />
+                    </EditableField>
+
+                    <EditableField label={getLabel('purpose')} iconName="check" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('purpose', v)}>
+                      <AutoResizeTextarea
+                        value={step.purpose}
+                        onChange={(e) => handleFieldChange('purpose', e.target.value)}
+                        placeholder="目的を入力..."
+                      />
+                    </EditableField>
+
+                    <EditableField label={getLabel('dos')} iconName="check-circle" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('dos', v)}>
+                      <AutoResizeTextarea
+                        value={step.dos || ''}
+                        onChange={(e) => handleFieldChange('dos', e.target.value)}
+                        placeholder="やるべきことを入力..."
+                      />
+                    </EditableField>
+
+                    <EditableField label={getLabel('donts')} iconName="x-circle" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('donts', v)}>
+                      <AutoResizeTextarea
+                        value={step.donts || ''}
+                        onChange={(e) => handleFieldChange('donts', e.target.value)}
+                        placeholder="やってはいけないことを入力..."
+                      />
+                    </EditableField>
+
+                    <EditableField label={getLabel('procedure')} iconName="file-text" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('procedure', v)}>
+                      <AutoResizeTextarea
+                        value={step.procedure}
+                        onChange={(e) => handleFieldChange('procedure', e.target.value)}
+                        placeholder="手順を入力..."
+                        className="min-h-[100px]"
+                      />
+                    </EditableField>
+
+                    <EditableField label={getLabel('manualUrls')} iconName="link" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('manualUrls', v)}>
+                      <div className="space-y-2">
+                        {(step.manualUrls || []).map((urlItem, idx) => (
+                          <div key={idx} className="text-sm bg-gray-50 p-2 rounded border border-gray-200 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <LucideIcon name="link" size={14} className="text-blue-500 flex-shrink-0"/>
+                              <input
+                                type="text"
+                                value={urlItem.title || ''}
+                                onChange={(e) => {
+                                  const newUrls = [...(step.manualUrls || [])];
+                                  newUrls[idx] = { ...newUrls[idx], title: e.target.value };
+                                  handleFieldChange('manualUrls', newUrls);
+                                }}
+                                placeholder="タイトルを入力..."
+                                className="flex-1 p-1 border border-gray-300 rounded text-sm"
+                              />
+                              <button type="button" onClick={() => {
+                                const newUrls = [...(step.manualUrls || [])];
+                                newUrls.splice(idx, 1);
+                                handleFieldChange('manualUrls', newUrls);
+                              }} className="text-gray-400 hover:text-red-500 flex-shrink-0">×</button>
+                            </div>
+                            <div className="flex items-center gap-2 pl-5">
+                              <input
+                                type="url"
+                                value={urlItem.url || ''}
+                                onChange={(e) => {
+                                  const newUrls = [...(step.manualUrls || [])];
+                                  newUrls[idx] = { ...newUrls[idx], url: e.target.value };
+                                  handleFieldChange('manualUrls', newUrls);
+                                }}
+                                placeholder="URLを入力..."
+                                className="flex-1 p-1 border border-gray-300 rounded text-sm text-blue-600"
+                              />
+                              {urlItem.url && (
+                                <a href={urlItem.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 flex-shrink-0">
+                                  <LucideIcon name="external-link" size={14}/>
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        <div className="border-2 border-dashed border-gray-300 rounded p-3 space-y-2">
+                          <input
+                            type="text"
+                            id={`url-title-input-${step.id}`}
+                            placeholder="タイトルを入力..."
+                            className="w-full p-2 border border-gray-300 rounded text-sm"
+                          />
+                          <input
+                            type="url"
+                            id={`url-input-${step.id}`}
+                            placeholder="URLを入力..."
+                            className="w-full p-2 border border-gray-300 rounded text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const titleInput = document.getElementById(`url-title-input-${step.id}`);
+                              const urlInput = document.getElementById(`url-input-${step.id}`);
+                              if (urlInput.value) {
+                                const newUrl = { title: titleInput.value || '', url: urlInput.value };
+                                handleFieldChange('manualUrls', [...(step.manualUrls || []), newUrl]);
+                                titleInput.value = '';
+                                urlInput.value = '';
+                              }
+                            }}
+                            className="w-full p-2 bg-blue-500 text-white rounded text-sm hover:bg-blue-600 transition-colors flex items-center justify-center"
+                          >
+                            <LucideIcon name="plus" size={16} className="mr-1"/> URLを追加
+                          </button>
+                        </div>
+                      </div>
+                    </EditableField>
+
+                    <EditableField label={getLabel('pdfs')} iconName="file-text" isEditMode={isEditMode} onLabelChange={(v) => handleLabelChange('pdfs', v)}>
+                      <div className="space-y-2">
+                        {(step.pdfs || []).map((pdf, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 p-2 rounded border border-gray-200">
+                            <div onClick={() => {
+                              const link = document.createElement('a');
+                              link.href = pdf.data;
+                              link.download = pdf.name;
+                              link.click();
+                            }} className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2">
+                              <LucideIcon name="file-text" size={14} className="mr-1 text-red-500 flex-shrink-0"/>
+                              <span className="truncate">{pdf.name}</span>
+                            </div>
+                            <button type="button" onClick={() => {
+                              const newPdfs = [...(step.pdfs || [])];
+                              newPdfs.splice(idx, 1);
+                              handleFieldChange('pdfs', newPdfs);
+                            }} className="text-gray-400 hover:text-red-500">×</button>
+                          </div>
+                        ))}
+                        <label
+                          className="flex flex-col items-center justify-center w-full p-4 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-50 hover:border-blue-400 transition-colors text-sm text-gray-500"
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.currentTarget.classList.add('bg-blue-50', 'border-blue-400');
+                          }}
+                          onDragLeave={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.currentTarget.classList.remove('bg-blue-50', 'border-blue-400');
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.currentTarget.classList.remove('bg-blue-50', 'border-blue-400');
+                            const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+                            const newPdfs = [];
+                            let loaded = 0;
+                            files.forEach(file => {
+                              const reader = new FileReader();
+                              reader.onload = (event) => {
+                                newPdfs.push({ name: file.name, data: event.target.result });
+                                loaded++;
+                                if (loaded === files.length) {
+                                  handleFieldChange('pdfs', [...(step.pdfs || []), ...newPdfs]);
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            });
+                          }}
+                        >
+                          <LucideIcon name="upload" size={20} className="mb-1"/>
+                          <span>PDFを追加</span>
+                          <span className="text-xs text-gray-400 mt-1">クリックまたはドラッグ&ドロップ</span>
+                          <input type="file" accept=".pdf" multiple className="hidden" onChange={(e) => {
+                            const files = Array.from(e.target.files);
+                            const newPdfs = [];
+                            let loaded = 0;
+                            files.forEach(file => {
+                              const reader = new FileReader();
+                              reader.onload = (event) => {
+                                newPdfs.push({ name: file.name, data: event.target.result });
+                                loaded++;
+                                if (loaded === files.length) {
+                                  handleFieldChange('pdfs', [...(step.pdfs || []), ...newPdfs]);
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            });
+                            e.target.value = '';
+                          }} />
+                        </label>
+                      </div>
+                    </EditableField>
+                  </div>
+                ) : (
+                  <div className="space-y-4 text-gray-800">
+                    {step.days && (
+                      <div className="text-sm">
+                        <span className="font-semibold">{getLabel('days')}:</span> {step.days}
+                      </div>
+                    )}
+                    <div className="text-sm">
+                      <span className="font-semibold">{getLabel('role')}:</span> {step.role === 'sales' ? '営業担当' : '営業事務'}
+                    </div>
+                    {step.requestTo && (
+                      <div className="text-sm">
+                        <span className="font-semibold">{getLabel('requestTo')}:</span>
+                        <div className="mt-1 whitespace-pre-wrap">{step.requestTo}</div>
+                      </div>
+                    )}
+                    {step.purpose && (
+                      <div className="text-sm">
+                        <span className="font-semibold">{getLabel('purpose')}:</span>
+                        <div className="mt-1 whitespace-pre-wrap">{step.purpose}</div>
+                      </div>
+                    )}
+                    {step.dos && (
+                      <div className="text-sm">
+                        <span className="font-semibold text-green-600">{getLabel('dos')}:</span>
+                        <div className="mt-1 whitespace-pre-wrap">{step.dos}</div>
+                      </div>
+                    )}
+                    {step.donts && (
+                      <div className="text-sm">
+                        <span className="font-semibold text-red-600">{getLabel('donts')}:</span>
+                        <div className="mt-1 whitespace-pre-wrap">{step.donts}</div>
+                      </div>
+                    )}
+                    {step.procedure && (
+                      <div className="text-sm">
+                        <span className="font-semibold">{getLabel('procedure')}:</span>
+                        <div className="mt-1 whitespace-pre-wrap">{step.procedure}</div>
+                      </div>
+                    )}
+                    {step.manualUrls && step.manualUrls.length > 0 && (
+                      <div className="text-sm">
+                        <span className="font-semibold">{getLabel('manualUrls')}:</span>
+                        <div className="mt-2 space-y-1">
+                          {step.manualUrls.map((urlItem, idx) => (
+                            <div key={idx} className="flex items-center">
+                              <LucideIcon name="link" size={14} className="mr-1 text-blue-500"/>
+                              <a
+                                href={urlItem.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline"
+                              >
+                                {urlItem.title || urlItem.url}
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {step.pdfs && step.pdfs.length > 0 && (
+                      <div className="text-sm">
+                        <span className="font-semibold">{getLabel('pdfs')}:</span>
+                        <div className="mt-2 space-y-1">
+                          {step.pdfs.map((pdf, idx) => (
+                            <div key={idx} className="flex items-center">
+                              <LucideIcon name="file-text" size={14} className="mr-1 text-red-500"/>
+                              <span
+                                onClick={() => {
+                                  const link = document.createElement('a');
+                                  link.href = pdf.data;
+                                  link.download = pdf.name;
+                                  link.click();
+                                }}
+                                className="text-blue-600 hover:underline cursor-pointer"
+                              >
+                                {pdf.name}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        const FlowManagementApp = ({ onNavigateToKarte }) => {
+            const [flowSteps, setFlowSteps, isLoadingFlowSteps] = useFirebaseState('flowSteps', initialFlowSteps.map((step, index) => ({ ...step, masterIndex: index })));
+            const [selectedStepId, setSelectedStepId] = useState(null);
+            const [draggingItem, setDraggingItem] = useState(null);
+            const [dragOverItem, setDragOverItem] = useState(null);
+            const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
+            const [isEditMode, setIsEditMode] = useState(false);
+
+            // Set initial selected step after data loads
+            useEffect(() => {
+                if (!isLoadingFlowSteps && flowSteps.length > 0 && !selectedStepId) {
+                    setSelectedStepId(flowSteps[0]?.id);
+                }
+            }, [isLoadingFlowSteps, flowSteps, selectedStepId]);
+
+            const selectedStep = flowSteps.find(s => s.id === selectedStepId);
+
+            // Show loading state
+            if (isLoadingFlowSteps) {
+                return (
+                    <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                        <div className="text-center">
+                            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
+                            <p className="text-gray-600">データを読み込み中...</p>
+                        </div>
+                    </div>
+                );
+            }
+            const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
+            const closeModal = () => setModalState({ ...modalState, isOpen: false });
+
+            const handleAddStep = () => {
+                const newId = Math.max(...flowSteps.map(s => s.id), 0) + 1;
+                const newStep = { id: newId, title: "新規ステップ", role: "sales", requestTo: "", purpose: "", dos: "", donts: "", procedure: "", manualUrls: [], pdfs: [] };
+                setFlowSteps([...flowSteps, newStep]);
+                setSelectedStepId(newId);
+                setIsEditMode(true);
+            };
+            const handleUpdateStep = (id, updatedStep) => setFlowSteps(flowSteps.map(s => s.id === id ? updatedStep : s));
+            const handleDragSort = () => {
+                const items = [...flowSteps];
+                const [reorderedItem] = items.splice(draggingItem, 1);
+                items.splice(dragOverItem, 0, reorderedItem);
+                setFlowSteps(items);
+            };
+            const handleRequestDeleteStep = (id, title) => {
+                showModal("ステップ削除", `「${title}」を削除してもよろしいですか？`, () => {
+                    const newSteps = flowSteps.filter(s => s.id !== id);
+                    setFlowSteps(newSteps);
+                    if (selectedStepId === id) setSelectedStepId(newSteps[0]?.id || null);
+                    closeModal();
+                });
+            };
+
+            return (
+                <div className="flex flex-col h-full w-full bg-gray-100 font-sans">
+                    <div className="px-4 py-2 bg-teal-600 flex-shrink-0 flex items-center justify-between">
+                        <span className="text-white text-sm font-bold">顧客情報はこちら</span>
+                        <button
+                            onClick={() => onNavigateToKarte && onNavigateToKarte()}
+                            className="flex items-center gap-2 bg-white text-teal-700 font-bold px-5 py-2 rounded-lg shadow hover:bg-teal-50 transition-all text-sm"
+                        >
+                            <LucideIcon name="notebook" size={16} />
+                            顧客カルテを開く
+                        </button>
+                    </div>
+                        <div className="flex flex-1 overflow-hidden">
+                            <ErrorBoundary>
+                                <StepSelector listTitle="営業作業フロー" steps={flowSteps} selectedStepId={selectedStepId} onSelectStep={setSelectedStepId} onAddStep={handleAddStep} onRequestDeleteStep={handleRequestDeleteStep} draggingItem={draggingItem} setDraggingItem={setDraggingItem} dragOverItem={dragOverItem} setDragOverItem={setDragOverItem} onDragSort={handleDragSort} />
+                                <main className="flex-1 p-6 overflow-hidden h-full flex flex-col"><div className="flex justify-end mb-4"><button onClick={() => setIsEditMode(!isEditMode)} className={`px-4 py-2 rounded text-sm font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>{isEditMode ? '完了' : '編集'}</button></div><StepEditor step={selectedStep} onUpdateStep={handleUpdateStep} isEditMode={isEditMode} /></main>
+                                <ConfirmModal isOpen={modalState.isOpen} title={modalState.title} message={modalState.message} onConfirm={modalState.onConfirm} onCancel={closeModal} />
+                            </ErrorBoundary>
+                        </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        //  4. Bank App Components (各種銀行)
+        // ==========================================
+
+        const BankEditableRow = ({ label, value, onChange, placeholder, icon, onDelete, fieldKey, onDragStart, onDragOver, onDrop, isDragging }) => {
+          return (
+            <div
+              draggable={true}
+              onDragStart={(e) => onDragStart && onDragStart(e, fieldKey)}
+              onDragOver={(e) => onDragOver && onDragOver(e)}
+              onDrop={(e) => onDrop && onDrop(e, fieldKey)}
+              className={`grid grid-cols-3 gap-4 items-start group p-3 rounded-lg border border-gray-200 bg-white hover:border-blue-300 transition-all cursor-move ${isDragging ? 'opacity-50 border-dashed border-blue-500' : ''}`}
+            >
+              <label className="flex items-center text-sm font-semibold text-gray-700 col-span-1 gap-2">
+                <LucideIcon name="grip-vertical" size={16} className="text-gray-400" />
+                {icon} {label}
+              </label>
+              <div className="col-span-2 flex gap-2">
+                <AutoResizeTextarea value={value} onChange={onChange} placeholder={placeholder || "詳細を入力..."} className="min-h-[40px] flex-1" />
+                {onDelete && <button onClick={() => onDelete(fieldKey)} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-2"><LucideIcon name="trash-2" size={16}/></button>}
+              </div>
+            </div>
+          );
+        };
+
+        const BankEditor = ({ bank, isEditMode, onUpdateBank, onAddDetailField, onDeleteDetailField }) => {
+          const [newFieldName, setNewFieldName] = useState('');
+          const [showAddField, setShowAddField] = useState(false);
+          const [draggedField, setDraggedField] = useState(null);
+
+          if (!bank) return <div className="flex-1 h-full bg-white rounded-xl shadow-lg border border-gray-200 flex items-center justify-center"> <p className="text-gray-500 text-lg">左のリストから銀行を選択してください</p> </div>;
+
+          // フィールド名の日本語マッピング
+          const fieldLabels = {
+              bankUrl: '銀行公式URL',
+              repaymentPeriod: '返済期間',
+              loanPlan: '借入プラン',
+              handlingFee: '事務取扱手数料',
+              groupCreditLifeInsurance: '団体信用保険',
+              other: 'その他',
+              productSummaryLink: '商品概要リンク',
+              buildingCertIssued: '建築確認済証',
+              buildingCertApplication: '建築確認済証申請書',
+              interimInspectionCert: '中間検査済証',
+              completionInspectionCert: '完了検査済証',
+              titleRegistration: '表題登記',
+              bridgeLoan: 'つなぎ融資',
+              constructionContract: '工事請負契約書',
+              additionalContract: '追加工事請負契約書',
+              exteriorContract: '外構工事請負契約書',
+              fireInsuranceApplication: '火災保険申込書',
+              contactList: '担当者一覧'
+          };
+
+          const details = bank.details || {};
+          const fieldOrder = bank.fieldOrder || Object.keys(details);
+          const handleDetailChange = (field, value) => { onUpdateBank(bank.id, { ...bank, details: { ...details, [field]: value } }); };
+          const handleNameChange = (e) => { onUpdateBank(bank.id, { ...bank, name: e.target.value }); };
+          const handleTypeChange = (e) => { onUpdateBank(bank.id, { ...bank, type: e.target.value }); };
+
+          const handleAddField = () => {
+              if (newFieldName.trim()) {
+                  onAddDetailField(bank.id, newFieldName.trim());
+                  setNewFieldName('');
+                  setShowAddField(false);
+              }
+          };
+
+          // ドラッグ&ドロップ処理
+          const handleDragStart = (e, fieldKey) => {
+              setDraggedField(fieldKey);
+              e.dataTransfer.effectAllowed = 'move';
+          };
+
+          const handleDragOver = (e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+          };
+
+          const handleDrop = (e, targetFieldKey) => {
+              e.preventDefault();
+              if (!draggedField || draggedField === targetFieldKey) {
+                  setDraggedField(null);
+                  return;
+              }
+
+              const currentOrder = bank.fieldOrder || Object.keys(details).filter(f => f !== 'bankUrl');
+              const newOrder = [...currentOrder];
+              const draggedIndex = newOrder.indexOf(draggedField);
+              const targetIndex = newOrder.indexOf(targetFieldKey);
+
+              if (draggedIndex !== -1 && targetIndex !== -1) {
+                  newOrder.splice(draggedIndex, 1);
+                  newOrder.splice(targetIndex, 0, draggedField);
+                  onUpdateBank(bank.id, { ...bank, fieldOrder: newOrder });
+              }
+              setDraggedField(null);
+          };
+
+          const detailFields = Object.keys(details);
+          const urlField = 'bankUrl';
+          // fieldOrderがあればその順序を使用、なければdetailFieldsの順序
+          const otherFields = (bank.fieldOrder || detailFields.filter(f => f !== urlField)).filter(f => f !== urlField && details.hasOwnProperty(f));
+
+          if (isEditMode) {
+              // Edit Mode
+              return ( <div className="flex-1 h-full bg-white rounded-xl shadow-lg border border-gray-200 overflow-y-auto"> <div className="p-6">
+                  <div className="mb-6 pb-4 border-b border-gray-200">
+                      <div className="flex items-center gap-4 mb-4">
+                          <input type="text" value={bank.name} onChange={handleNameChange} className="text-3xl font-bold text-gray-800 border-b-2 border-transparent hover:border-blue-300 focus:border-blue-500 focus:outline-none flex-1" />
+                          <select value={bank.type} onChange={handleTypeChange} className="px-3 py-2 border border-gray-300 rounded-md text-sm font-semibold">
+                              <option value="main">⭐ メインバンク</option>
+                              <option value="sub">その他</option>
+                          </select>
+                      </div>
+                  </div>
+                  <div className="space-y-4">
+                      {/* URL Field - Special treatment */}
+                      <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+                          <label className="flex items-center text-sm font-bold text-blue-800 mb-2">
+                              <LucideIcon name="link" size={20} className="mr-2" />
+                              {fieldLabels[urlField]}
+                          </label>
+                          <input
+                              type="url"
+                              value={details[urlField] || ''}
+                              onChange={(e) => handleDetailChange(urlField, e.target.value)}
+                              placeholder="https://..."
+                              className="w-full p-2 border border-blue-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                          />
+                      </div>
+
+                      {/* Other Fields - ドラッグで順序変更可能 */}
+                      <div className="space-y-2">
+                          {otherFields.map(fieldKey => (
+                              <BankEditableRow
+                                  key={fieldKey}
+                                  label={fieldLabels[fieldKey] || fieldKey}
+                                  fieldKey={fieldKey}
+                                  icon={<LucideIcon name="file-text" size={18} />}
+                                  value={details[fieldKey]}
+                                  onChange={(e) => handleDetailChange(fieldKey, e.target.value)}
+                                  onDelete={(fKey) => onDeleteDetailField(bank.id, fKey)}
+                                  onDragStart={handleDragStart}
+                                  onDragOver={handleDragOver}
+                                  onDrop={handleDrop}
+                                  isDragging={draggedField === fieldKey}
+                              />
+                          ))}
+                      </div>
+
+                      {showAddField ? (
+                          <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 bg-blue-50">
+                              <div className="flex gap-2">
+                                  <input
+                                      type="text"
+                                      value={newFieldName}
+                                      onChange={(e) => setNewFieldName(e.target.value)}
+                                      placeholder="新しい項目名を入力..."
+                                      className="flex-1 p-2 border border-gray-300 rounded text-sm"
+                                      onKeyDown={(e) => e.key === 'Enter' && handleAddField()}
+                                      autoFocus
+                                  />
+                                  <button onClick={handleAddField} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-bold">追加</button>
+                                  <button onClick={() => { setShowAddField(false); setNewFieldName(''); }} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm">キャンセル</button>
+                              </div>
+                          </div>
+                      ) : (
+                          <button onClick={() => setShowAddField(true)} className="w-full py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors flex items-center justify-center gap-2 font-semibold">
+                              <LucideIcon name="plus" size={20} /> 新しい項目を追加
+                          </button>
+                      )}
+                  </div> </div> </div> );
+          } else {
+              // Read-only Mode
+              return ( <div className="flex-1 h-full bg-white rounded-xl shadow-lg border border-gray-200 overflow-y-auto"> <div className="p-6">
+                  <div className="mb-6 pb-4 border-b border-gray-200">
+                      <div className="flex items-center gap-4 mb-4">
+                          <h2 className="text-3xl font-bold text-gray-800 flex-1">{bank.name}</h2>
+                          <span className="px-3 py-2 bg-blue-100 text-blue-800 rounded-md text-sm font-semibold">
+                              {bank.type === 'main' ? '⭐ メインバンク' : 'その他'}
+                          </span>
+                      </div>
+                  </div>
+                  <div>
+                      {/* URL Field - Special treatment with hyperlink */}
+                      {details[urlField] && (
+                          <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
+                              <label className="flex items-center text-sm font-bold text-blue-800 mb-2">
+                                  <LucideIcon name="link" size={20} className="mr-2" />
+                                  {fieldLabels[urlField]}
+                              </label>
+                              <a
+                                  href={details[urlField]}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 underline hover:no-underline font-medium flex items-center gap-2 break-all"
+                              >
+                                  {details[urlField]}
+                                  <LucideIcon name="external-link" size={16} className="flex-shrink-0" />
+                              </a>
+                          </div>
+                      )}
+
+                      {/* Other Fields - テーブル形式で見やすく */}
+                      <div className="border border-gray-200 rounded-lg overflow-hidden">
+                          <table className="w-full">
+                              <tbody>
+                                  {otherFields.map((fieldKey, idx) => {
+                                      const value = details[fieldKey];
+                                      // URLかPDFリンクかをチェック
+                                      const isUrl = value && (value.startsWith('http://') || value.startsWith('https://'));
+                                      const isPdf = value && (value.toLowerCase().includes('.pdf') || value.toLowerCase().includes('pdf'));
+                                      const hasLink = isUrl || (isPdf && value.startsWith('http'));
+
+                                      // テキスト内のURLを検出してリンク化する関数
+                                      const renderValueWithLinks = (text) => {
+                                          if (!text) return <span className="text-gray-400 italic">未設定</span>;
+
+                                          // URLパターン
+                                          const urlPattern = /(https?:\/\/[^\s]+)/g;
+                                          const parts = text.split(urlPattern);
+
+                                          if (parts.length === 1 && !urlPattern.test(text)) {
+                                              return text;
+                                          }
+
+                                          return parts.map((part, i) => {
+                                              if (part.match(urlPattern)) {
+                                                  return (
+                                                      <a
+                                                          key={i}
+                                                          href={part}
+                                                          target="_blank"
+                                                          rel="noopener noreferrer"
+                                                          className="text-blue-600 hover:text-blue-800 underline hover:no-underline inline-flex items-center gap-1"
+                                                      >
+                                                          {part}
+                                                          <LucideIcon name="external-link" size={14} className="flex-shrink-0" />
+                                                      </a>
+                                                  );
+                                              }
+                                              return part;
+                                          });
+                                      };
+
+                                      return (
+                                          <tr key={fieldKey} className={`${idx % 2 === 0 ? 'bg-gray-50' : 'bg-white'} border-b border-gray-200 last:border-b-0`}>
+                                              <td className="p-3 w-1/3 align-top border-r border-gray-200">
+                                                  <label className="flex items-center text-sm font-semibold text-gray-700 gap-2">
+                                                      <LucideIcon name={hasLink ? 'link' : 'file-text'} size={16} className={`flex-shrink-0 ${hasLink ? 'text-blue-500' : 'text-gray-400'}`} />
+                                                      {fieldLabels[fieldKey] || fieldKey}
+                                                  </label>
+                                              </td>
+                                              <td className="p-3 w-2/3 align-top">
+                                                  <div className="text-gray-800 whitespace-pre-wrap break-all">
+                                                      {renderValueWithLinks(value)}
+                                                  </div>
+                                              </td>
+                                          </tr>
+                                      );
+                                  })}
+                              </tbody>
+                          </table>
+                      </div>
+                  </div>
+              </div> </div> );
+          }
+        };
+
+        const BankList = ({ banks, selectedBankId, onSelectBank, searchTerm, onSearchChange, onAddBank, onDeleteBank, isEditMode }) => {
+          const filteredBanks = banks.filter(bank => bank.name.toLowerCase().includes(searchTerm.toLowerCase()));
+          const mainBanks = filteredBanks.filter(b => b.type === 'main');
+          const subBanks = filteredBanks.filter(b => b.type === 'sub');
+
+          return (
+             <div className="w-80 h-full bg-gray-50 border-r border-gray-200 flex flex-col flex-shrink-0">
+                 <div className="p-4 border-b border-gray-200">
+                     <div className="relative mb-3">
+                         <input type="text" value={searchTerm} onChange={onSearchChange} placeholder="銀行を検索..." className="w-full p-2 pl-10 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm" />
+                         <LucideIcon name="search" className="text-gray-400 absolute left-3 top-3" size={16} />
+                     </div>
+                     {isEditMode && (
+                         <button onClick={onAddBank} className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 text-sm">
+                             <LucideIcon name="plus" size={16} /> 銀行を追加
+                         </button>
+                     )}
+                 </div>
+                 <div className="flex-1 overflow-y-auto">
+                     {/* Main Banks */}
+                     {mainBanks.length > 0 && (
+                         <div>
+                             <div className="px-4 py-2 bg-blue-100 text-blue-800 text-xs font-bold uppercase tracking-wider">⭐ メインバンク</div>
+                             {mainBanks.map((bank) => (
+                                 <div key={bank.id} className={`group p-4 border-b border-gray-200 cursor-pointer flex items-center justify-between ${ selectedBankId === bank.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : 'hover:bg-gray-100' }`}>
+                                     <h3 className={`font-medium truncate flex-1 ${selectedBankId === bank.id ? 'text-blue-800' : 'text-gray-700'}`} onClick={() => onSelectBank(bank.id)}> {bank.name} </h3>
+                                     {isEditMode && (
+                                         <button onClick={(e) => { e.stopPropagation(); onDeleteBank(bank.id, bank.name); }} className="text-gray-400 hover:text-red-500 transition-opacity p-1">
+                                             <LucideIcon name="trash-2" size={16} />
+                                         </button>
+                                     )}
+                                 </div>
+                             ))}
+                         </div>
+                     )}
+
+                     {/* Sub Banks */}
+                     {subBanks.length > 0 && (
+                         <div>
+                             <div className="px-4 py-2 bg-gray-200 text-gray-700 text-xs font-bold uppercase tracking-wider">その他</div>
+                             {subBanks.map((bank) => (
+                                 <div key={bank.id} className={`group p-4 border-b border-gray-200 cursor-pointer flex items-center justify-between ${ selectedBankId === bank.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : 'hover:bg-gray-100' }`}>
+                                     <h3 className={`font-medium truncate flex-1 ${selectedBankId === bank.id ? 'text-blue-800' : 'text-gray-700'}`} onClick={() => onSelectBank(bank.id)}> {bank.name} </h3>
+                                     {isEditMode && (
+                                         <button onClick={(e) => { e.stopPropagation(); onDeleteBank(bank.id, bank.name); }} className="text-gray-400 hover:text-red-500 transition-opacity p-1">
+                                             <LucideIcon name="trash-2" size={16} />
+                                         </button>
+                                     )}
+                                 </div>
+                             ))}
+                         </div>
+                     )}
+                 </div>
+             </div>
+          );
+        };
+
+        // 日本の祝日データ (2024-2027)
+        const getJapaneseHolidays = (year) => {
+            const holidays = [];
+
+            // 固定祝日
+            holidays.push(new Date(year, 0, 1));   // 元日
+            holidays.push(new Date(year, 1, 11));  // 建国記念の日
+            holidays.push(new Date(year, 1, 23));  // 天皇誕生日
+            holidays.push(new Date(year, 3, 29));  // 昭和の日
+            holidays.push(new Date(year, 4, 3));   // 憲法記念日
+            holidays.push(new Date(year, 4, 4));   // みどりの日
+            holidays.push(new Date(year, 4, 5));   // こどもの日
+            holidays.push(new Date(year, 7, 11));  // 山の日
+            holidays.push(new Date(year, 10, 3));  // 文化の日
+            holidays.push(new Date(year, 10, 23)); // 勤労感謝の日
+
+            // 成人の日 (1月第2月曜)
+            const seijin = new Date(year, 0, 1);
+            seijin.setDate(seijin.getDate() + ((8 - seijin.getDay()) % 7) + 7);
+            holidays.push(seijin);
+
+            // 海の日 (7月第3月曜)
+            const umi = new Date(year, 6, 1);
+            umi.setDate(umi.getDate() + ((8 - umi.getDay()) % 7) + 14);
+            holidays.push(umi);
+
+            // 敬老の日 (9月第3月曜)
+            const keiro = new Date(year, 8, 1);
+            keiro.setDate(keiro.getDate() + ((8 - keiro.getDay()) % 7) + 14);
+            holidays.push(keiro);
+
+            // スポーツの日 (10月第2月曜)
+            const sports = new Date(year, 9, 1);
+            sports.setDate(sports.getDate() + ((8 - sports.getDay()) % 7) + 7);
+            holidays.push(sports);
+
+            // 春分の日 (3月20日前後)
+            const shunbun = year === 2024 ? 20 : year === 2025 ? 20 : year === 2026 ? 20 : 21;
+            holidays.push(new Date(year, 2, shunbun));
+
+            // 秋分の日 (9月22日前後)
+            const shubun = year === 2024 ? 22 : year === 2025 ? 23 : year === 2026 ? 23 : 23;
+            holidays.push(new Date(year, 8, shubun));
+
+            // 振替休日の追加（祝日が日曜の場合、翌月曜が休日）
+            const withFurikae = [...holidays];
+            holidays.forEach(h => {
+                if (h.getDay() === 0) {
+                    withFurikae.push(new Date(h.getTime() + 24 * 60 * 60 * 1000));
+                }
+            });
+
+            return withFurikae;
+        };
+
+        const isHoliday = (date) => {
+            const year = date.getFullYear();
+            const holidays = getJapaneseHolidays(year);
+            return holidays.some(h =>
+                h.getFullYear() === date.getFullYear() &&
+                h.getMonth() === date.getMonth() &&
+                h.getDate() === date.getDate()
+            );
+        };
+
+        const isBusinessDay = (date) => {
+            const day = date.getDay();
+            if (day === 0 || day === 6) return false; // 土日
+            if (isHoliday(date)) return false; // 祝日
+            return true;
+        };
+
+        const getPreviousBusinessDay = (date) => {
+            const result = new Date(date);
+            while (!isBusinessDay(result)) {
+                result.setDate(result.getDate() - 1);
+            }
+            return result;
+        };
+
+        const DateCalculatorTool = () => {
+            const today = new Date();
+            const [selectedDate, setSelectedDate] = useState(today.toISOString().split('T')[0]);
+            const [jotoDate, setJotoDate] = useState(null);
+            const [jotoPaymentDate, setJotoPaymentDate] = useState(null);
+            const [isJotoHoliday, setIsJotoHoliday] = useState(false);
+            const [isPaymentHoliday, setIsPaymentHoliday] = useState(false);
+
+            const calculateDates = () => {
+                const baseDate = new Date(selectedDate);
+
+                // 上棟日: 着工日から40日後
+                const joto = new Date(baseDate);
+                joto.setDate(joto.getDate() + 40);
+
+                if (isBusinessDay(joto)) {
+                    setJotoDate(joto);
+                    setIsJotoHoliday(false);
+                } else {
+                    setJotoDate(getPreviousBusinessDay(joto));
+                    setIsJotoHoliday(true);
+                }
+
+                // 上棟金入金日: 上棟日から7日後
+                const actualJotoDate = isBusinessDay(joto) ? joto : getPreviousBusinessDay(joto);
+                const payment = new Date(actualJotoDate);
+                payment.setDate(payment.getDate() + 7);
+
+                if (isBusinessDay(payment)) {
+                    setJotoPaymentDate(payment);
+                    setIsPaymentHoliday(false);
+                } else {
+                    setJotoPaymentDate(getPreviousBusinessDay(payment));
+                    setIsPaymentHoliday(true);
+                }
+            };
+
+            useEffect(() => {
+                calculateDates();
+            }, [selectedDate]);
+
+            const formatDate = (date) => {
+                if (!date) return '';
+                const days = ['日', '月', '火', '水', '木', '金', '土'];
+                return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日（${days[date.getDay()]}）`;
+            };
+
+            return (
+                <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 max-w-lg mx-auto">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <LucideIcon name="calculator" size={28} className="text-yellow-600"/>
+                        入金日計算ツール
+                    </h2>
+
+                    <div className="space-y-6">
+                        <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4">
+                            <label className="block text-sm font-bold text-blue-800 mb-2">
+                                <span className="flex items-center gap-2">
+                                    <LucideIcon name="hammer" size={16}/>
+                                    着工日を選択
+                                </span>
+                            </label>
+                            <input
+                                type="date"
+                                value={selectedDate}
+                                onChange={(e) => setSelectedDate(e.target.value)}
+                                className="w-full p-3 border border-blue-300 rounded-lg text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            />
+                            <p className="text-sm text-blue-600 mt-2 font-semibold">
+                                着工日: {formatDate(new Date(selectedDate))}
+                            </p>
+                        </div>
+
+                        <div className="border-t pt-6 space-y-4">
+                            {/* 上棟日 */}
+                            <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4">
+                                <p className="text-sm font-bold text-yellow-800 mb-2 flex items-center gap-2">
+                                    <LucideIcon name="home" size={16}/>
+                                    上棟日（着工日から40日後）
+                                </p>
+                                {jotoDate && (
+                                    <>
+                                        <p className="text-2xl font-bold text-yellow-700">
+                                            {formatDate(jotoDate)}
+                                        </p>
+                                        {isJotoHoliday && (
+                                            <p className="text-xs text-orange-600 mt-2 flex items-center gap-1">
+                                                <LucideIcon name="alert-circle" size={12}/>
+                                                土日祝のため直前の営業日を表示
+                                            </p>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+
+                            {/* 上棟金入金日 */}
+                            <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4">
+                                <p className="text-sm font-bold text-green-800 mb-2 flex items-center gap-2">
+                                    <LucideIcon name="banknote" size={16}/>
+                                    上棟金入金日（上棟日から7日後）
+                                </p>
+                                {jotoPaymentDate && (
+                                    <>
+                                        <p className="text-2xl font-bold text-green-700">
+                                            {formatDate(jotoPaymentDate)}
+                                        </p>
+                                        {isPaymentHoliday && (
+                                            <p className="text-xs text-orange-600 mt-2 flex items-center gap-1">
+                                                <LucideIcon name="alert-circle" size={12}/>
+                                                土日祝のため直前の営業日を表示
+                                            </p>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
+                            <p className="font-semibold mb-2">計算ルール:</p>
+                            <ul className="list-disc list-inside space-y-1">
+                                <li>上棟日 = 着工日 + 40日</li>
+                                <li>上棟金入金日 = 上棟日 + 7日</li>
+                                <li>土曜・日曜・祝日は営業日から除外</li>
+                                <li>休日に該当する場合は直前の営業日を表示</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const BankManagementApp = () => {
+             // Version 11: Firebase integration for real-time sync
+             const [banks, setBanks, isLoadingBanks] = useFirebaseState('banks', initialBankData);
+             const [selectedBankId, setSelectedBankId] = useState(null);
+             const [searchTerm, setSearchTerm] = useState("");
+             const [isEditMode, setIsEditMode] = useState(false);
+             const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
+             const [activeTab, setActiveTab] = useState('banks'); // 'banks' or 'tools'
+
+             // Set initial selected bank after data loads
+             useEffect(() => {
+                 if (!isLoadingBanks && banks.length > 0 && !selectedBankId) {
+                     setSelectedBankId(banks[0]?.id);
+                 }
+             }, [isLoadingBanks, banks, selectedBankId]);
+
+             // 既存データにbankUrlフィールドがない場合は追加する（データ移行）
+             useEffect(() => {
+                 if (!isLoadingBanks && banks.length > 0) {
+                     const needsUpdate = banks.some(bank => !bank.details.hasOwnProperty('bankUrl'));
+                     if (needsUpdate) {
+                         const updatedBanks = banks.map(bank => ({
+                             ...bank,
+                             details: {
+                                 bankUrl: bank.details.bankUrl || '',
+                                 ...bank.details
+                             }
+                         }));
+                         setBanks(updatedBanks);
+                     }
+                 }
+             }, [isLoadingBanks]);
+
+             const selectedBank = banks.find(b => b.id === selectedBankId) || banks[0];
+
+             // Show loading state
+             if (isLoadingBanks) {
+                 return (
+                     <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                         <div className="text-center">
+                             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
+                             <p className="text-gray-600">データを読み込み中...</p>
+                         </div>
+                     </div>
+                 );
+             }
+
+             const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
+             const closeModal = () => setModalState({ ...modalState, isOpen: false });
+
+             const handleAddBank = () => {
+                 const newId = Math.max(...banks.map(b => b.id), 0) + 1;
+                 const newBank = { id: newId, name: "新規銀行", type: 'sub', details: { ...bankTemplate } };
+                 setBanks([...banks, newBank]);
+                 setSelectedBankId(newId);
+             };
+
+             const handleDeleteBank = (id, name) => {
+                 showModal("銀行削除", `「${name}」を削除してもよろしいですか？`, () => {
+                     const newBanks = banks.filter(b => b.id !== id);
+                     setBanks(newBanks);
+                     if (selectedBankId === id) setSelectedBankId(newBanks[0]?.id || null);
+                     closeModal();
+                 });
+             };
+
+             const handleAddDetailField = (bankId, fieldName) => {
+                 setBanks(banks.map(b => {
+                     if (b.id === bankId) {
+                         return { ...b, details: { ...b.details, [fieldName]: "" } };
+                     }
+                     return b;
+                 }));
+             };
+
+             const handleDeleteDetailField = (bankId, fieldName) => {
+                 showModal("項目削除", `「${fieldName}」を削除してもよろしいですか？`, () => {
+                     setBanks(banks.map(b => {
+                         if (b.id === bankId) {
+                             const newDetails = { ...b.details };
+                             delete newDetails[fieldName];
+                             return { ...b, details: newDetails };
+                         }
+                         return b;
+                     }));
+                     closeModal();
+                 });
+             };
+
+             return (
+                 <div className="flex flex-col h-full w-full bg-gray-100 font-sans">
+                     <ErrorBoundary>
+                         {/* Tab Navigation */}
+                         <div className="bg-white border-b border-gray-200 px-6 pt-4">
+                             <div className="flex gap-4">
+                                 <button
+                                     onClick={() => setActiveTab('banks')}
+                                     className={`px-6 py-3 font-bold text-sm rounded-t-lg transition-colors ${activeTab === 'banks' ? 'bg-yellow-100 text-yellow-800 border-b-2 border-yellow-500' : 'text-gray-600 hover:bg-gray-100'}`}
+                                 >
+                                     <span className="flex items-center gap-2">
+                                         <LucideIcon name="building" size={18}/>
+                                         銀行一覧
+                                     </span>
+                                 </button>
+                                 <button
+                                     onClick={() => setActiveTab('tools')}
+                                     className={`px-6 py-3 font-bold text-sm rounded-t-lg transition-colors ${activeTab === 'tools' ? 'bg-yellow-100 text-yellow-800 border-b-2 border-yellow-500' : 'text-gray-600 hover:bg-gray-100'}`}
+                                 >
+                                     <span className="flex items-center gap-2">
+                                         <LucideIcon name="wrench" size={18}/>
+                                         ツール
+                                     </span>
+                                 </button>
+                             </div>
+                         </div>
+
+                         {/* Tab Content */}
+                         {activeTab === 'banks' ? (
+                             <div className="flex flex-1 overflow-hidden">
+                                 <BankList
+                                     banks={banks}
+                                     selectedBankId={selectedBankId}
+                                     onSelectBank={setSelectedBankId}
+                                     searchTerm={searchTerm}
+                                     onSearchChange={(e) => setSearchTerm(e.target.value)}
+                                     onAddBank={handleAddBank}
+                                     onDeleteBank={handleDeleteBank}
+                                     isEditMode={isEditMode}
+                                 />
+                                 <main className="flex-1 p-6 overflow-hidden h-full flex flex-col">
+                                     <div className="flex justify-end mb-4">
+                                         <button
+                                             onClick={() => setIsEditMode(!isEditMode)}
+                                             className={`px-4 py-2 rounded text-sm font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                         >
+                                             {isEditMode ? '完了' : '編集'}
+                                         </button>
+                                     </div>
+                                     <BankEditor
+                                         bank={selectedBank}
+                                         isEditMode={isEditMode}
+                                         onUpdateBank={(id, updated) => setBanks(banks.map(b => b.id === id ? updated : b))}
+                                         onAddDetailField={handleAddDetailField}
+                                         onDeleteDetailField={handleDeleteDetailField}
+                                     />
+                                 </main>
+                             </div>
+                         ) : (
+                             <div className="flex-1 p-8 overflow-y-auto">
+                                 <DateCalculatorTool />
+                             </div>
+                         )}
+
+                         <ConfirmModal isOpen={modalState.isOpen} title={modalState.title} message={modalState.message} onConfirm={modalState.onConfirm} onCancel={closeModal} />
+                     </ErrorBoundary>
+                 </div>
+             );
+        };
+
+        // ==========================================
+        //  5. Sales App Components (営業育成)
+        // ==========================================
+
+        const EducationScheduleHeader = () => (
+            <div className="bg-white p-6 rounded-lg shadow-md mb-8 border border-gray-200">
+                <h2 className="text-2xl font-bold text-center text-blue-900 mb-6">教育プログラムスケジュール</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className="border rounded-xl overflow-hidden shadow-sm bg-white">
+                        <div className="bg-blue-900 text-white text-center py-2"><h3 className="font-bold">A研修</h3><span className="text-xs">デビュー研修</span></div>
+                        <div className="p-4 text-center"><span className="text-blue-600 font-bold border border-blue-200 px-3 py-1 rounded-full text-xs">1.5ヶ月</span><p className="font-bold mt-2">接客デビュー</p></div>
+                    </div>
+                    <div className="border rounded-xl overflow-hidden shadow-sm bg-white">
+                        <div className="bg-blue-800 text-white text-center py-2"><h3 className="font-bold">B研修</h3><span className="text-xs">1.5棟受注研修</span></div>
+                        <div className="p-4 text-center"><span className="text-blue-600 font-bold border border-blue-200 px-3 py-1 rounded-full text-xs">2.5ヶ月</span><p className="font-bold mt-2">1.5棟 / 月</p></div>
+                    </div>
+                     <div className="border rounded-xl overflow-hidden shadow-sm bg-white">
+                        <div className="bg-blue-700 text-white text-center py-2"><h3 className="font-bold">C研修</h3><span className="text-xs">2.5棟受注研修</span></div>
+                        <div className="p-4 text-center"><span className="text-blue-600 font-bold border border-blue-200 px-3 py-1 rounded-full text-xs">3ヶ月</span><p className="font-bold mt-2">2.5棟 / 月</p></div>
+                    </div>
+                </div>
+                <div className="relative pb-2 overflow-x-auto px-2">
+                    <div className="relative h-6 text-xs font-bold text-gray-600 min-w-[600px] mb-1">
+                        <div className="absolute left-0">入社月</div>
+                        <div className="absolute left-[12.5%] -translate-x-1/2">1.5ヶ月後</div>
+                        <div className="absolute left-[33.3%] -translate-x-1/2">4ヶ月後</div>
+                        <div className="absolute left-[58.3%] -translate-x-1/2">7ヶ月後</div>
+                        <div className="absolute right-0">7ヶ月目以降 C研修継続</div>
+                    </div>
+                    <div className="flex h-8 text-white text-xs font-bold min-w-[600px] rounded-full overflow-hidden shadow-sm">
+                        <div className="w-[12.5%] bg-blue-400 flex items-center justify-center border-r">A研修</div>
+                        <div className="w-[20.8%] bg-blue-600 flex items-center justify-center border-r">B研修</div>
+                        <div className="w-[25.0%] bg-blue-800 flex items-center justify-center border-r">C研修完了</div>
+                        <div className="flex-1 bg-orange-400 flex items-center justify-center">C研修 反復継続</div>
+                    </div>
+                </div>
+            </div>
+        );
+
+        // 月次契約数管理コンポーネント（8月起算）
+        const MonthlyContractsCard = ({ repId, contracts, onUpdateContract, isEditMode }) => {
+            const [showPastYears, setShowPastYears] = useState(false);
+            const [selectedYear, setSelectedYear] = useState(null);
+
+            // 現在の年度を取得（8月起算）
+            const getCurrentFiscalYear = () => {
+                const now = new Date();
+                const month = now.getMonth() + 1; // 1-12
+                const year = now.getFullYear();
+                return month >= 8 ? year : year - 1;
+            };
+
+            const currentFiscalYear = getCurrentFiscalYear();
+            const repContracts = contracts[repId] || {};
+
+            // 利用可能な年度リストを取得（降順）
+            const availableYears = Object.keys(repContracts).map(Number).sort((a, b) => b - a);
+            // 過去10年分の年度オプションを生成
+            const yearOptions = Array.from({ length: 10 }, (_, i) => currentFiscalYear - i);
+
+            const yearsToShow = showPastYears ? availableYears : [currentFiscalYear];
+
+            // 年度を追加
+            const handleAddYear = () => {
+                if (selectedYear && !repContracts[selectedYear]) {
+                    ensureYearData(selectedYear);
+                    setSelectedYear(null);
+                    setShowPastYears(true);
+                }
+            };
+
+            // 月のラベル（8月〜7月）
+            const monthLabels = ['8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月', '4月', '5月', '6月', '7月'];
+            const monthKeys = ['8', '9', '10', '11', '12', '1', '2', '3', '4', '5', '6', '7'];
+
+            // 年度のデータを初期化（空の状態で作成）
+            const ensureYearData = (year) => {
+                if (!repContracts[year]) {
+                    const newContracts = { ...contracts };
+                    if (!newContracts[repId]) newContracts[repId] = {};
+                    newContracts[repId][year] = {};
+                    onUpdateContract(newContracts);
+                }
+            };
+
+            // 現在年度のデータを確保
+            if (!repContracts[currentFiscalYear]) {
+                ensureYearData(currentFiscalYear);
+            }
+
+            // 契約数を更新
+            const handleContractChange = (year, month, value) => {
+                const newContracts = { ...contracts };
+                if (!newContracts[repId]) newContracts[repId] = {};
+                if (!newContracts[repId][year]) {
+                    newContracts[repId][year] = {};
+                }
+
+                // 空文字の場合は削除、それ以外は数値として保存
+                if (value === '' || value === null || value === undefined) {
+                    delete newContracts[repId][year][month];
+                } else {
+                    const numValue = parseInt(value);
+                    if (!isNaN(numValue) && numValue >= 0) {
+                        newContracts[repId][year][month] = numValue;
+                    }
+                }
+                onUpdateContract(newContracts);
+            };
+
+            // 合計と平均を計算（入力がある月のみ）
+            const calculateStats = (yearData) => {
+                if (!yearData) return { total: 0, average: '-', inputCount: 0 };
+
+                // 入力がある月のみを取得
+                const inputValues = monthKeys
+                    .map(m => yearData[m])
+                    .filter(val => val !== undefined && val !== null);
+
+                if (inputValues.length === 0) {
+                    return { total: 0, average: '-', inputCount: 0 };
+                }
+
+                const total = inputValues.reduce((sum, val) => sum + val, 0);
+                const average = (total / inputValues.length).toFixed(1);
+                return { total, average, inputCount: inputValues.length };
+            };
+
+            return (
+                <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                            <LucideIcon name="trending-up" className="text-blue-600" size={20} />
+                            月次契約棟数管理（8月起算）
+                        </h3>
+                        <div className="flex gap-2 items-center">
+                            {isEditMode && (
+                                <div className="flex gap-2 items-center">
+                                    <select
+                                        value={selectedYear || ''}
+                                        onChange={(e) => setSelectedYear(Number(e.target.value))}
+                                        className="px-3 py-1 text-sm border border-gray-300 rounded-md"
+                                    >
+                                        <option value="">過去年度を追加...</option>
+                                        {yearOptions.filter(y => y !== currentFiscalYear && !repContracts[y]).map(year => (
+                                            <option key={year} value={year}>{year}年度</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        onClick={handleAddYear}
+                                        disabled={!selectedYear}
+                                        className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                    >
+                                        追加
+                                    </button>
+                                </div>
+                            )}
+                            {availableYears.length > 1 && (
+                                <button
+                                    onClick={() => setShowPastYears(!showPastYears)}
+                                    className="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded-md transition-colors flex items-center gap-1"
+                                >
+                                    <LucideIcon name={showPastYears ? 'eye-off' : 'eye'} size={14} />
+                                    {showPastYears ? '最新年度のみ' : '過去年度も表示'}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="space-y-6">
+                        {yearsToShow.map(year => {
+                            const yearData = repContracts[year] || {};
+                            const stats = calculateStats(yearData);
+                            const isCurrent = year === currentFiscalYear;
+
+                            return (
+                                <div key={year} className={`border rounded-lg p-4 ${isCurrent ? 'border-blue-400 bg-blue-50' : 'border-gray-300'}`}>
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h4 className="font-bold text-gray-700">
+                                            {year}年度 ({year}年8月 〜 {year + 1}年7月)
+                                            {isCurrent && <span className="ml-2 text-xs bg-blue-600 text-white px-2 py-1 rounded">最新</span>}
+                                        </h4>
+                                        <div className="flex gap-4 text-sm">
+                                            <span className="font-semibold">合計: <span className="text-blue-600 text-lg">{stats.total}</span>棟</span>
+                                            <span className="font-semibold">平均: <span className="text-green-600 text-lg">{stats.average}</span>棟/月</span>
+                                            {stats.inputCount > 0 && <span className="text-xs text-gray-500">({stats.inputCount}ヶ月分)</span>}
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-6 gap-3">
+                                        {monthKeys.map((month, idx) => {
+                                            const value = yearData[month];
+                                            const hasValue = value !== undefined && value !== null;
+
+                                            return (
+                                                <div key={month} className="flex flex-col">
+                                                    <label className="text-xs font-medium text-gray-600 mb-1">{monthLabels[idx]}</label>
+                                                    {isEditMode ? (
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            value={hasValue ? value : ''}
+                                                            onChange={(e) => handleContractChange(year, month, e.target.value)}
+                                                            placeholder="-"
+                                                            className="w-full px-2 py-1 border border-blue-300 rounded text-center focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                        />
+                                                    ) : (
+                                                        <div className={`w-full px-2 py-1 rounded text-center font-medium ${hasValue ? 'bg-gray-100 border border-gray-200' : 'bg-white border border-gray-200 text-gray-400'}`}>
+                                                            {hasValue ? value : '-'}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        };
+
+        // Category display names mapping for Firebase-compatible keys
+        const categoryDisplayNames = {
+            'A研修_デビュー': 'A研修 (デビュー)',
+            'B研修_1_5棟月': 'B研修 (1.5棟/月)',
+            'C研修_独り立ち': 'C研修 (独り立ち)'
+        };
+
+        const TrainingItemCard = ({ item, repId, progress, onStatusUpdate, onAddComment, onDeleteComment, isEditMode, onUpdateItem, onDeleteItem }) => {
+            const [newComment, setNewComment] = useState('');
+            const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+            const [selectedVideo, setSelectedVideo] = useState(null);
+            const [videoPreview, setVideoPreview] = useState(null);
+            const [isDescOpen, setIsDescOpen] = useState(false);
+            const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+            const [editingCommentId, setEditingCommentId] = useState(null);
+            const [editingText, setEditingText] = useState('');
+            const [editingDate, setEditingDate] = useState('');
+            const [editingVideo, setEditingVideo] = useState(null);
+            const [editingVideoPreview, setEditingVideoPreview] = useState(null);
+            // 動画URL入力用の状態
+            const [videoUrl, setVideoUrl] = useState('');
+            const [videoTitle, setVideoTitle] = useState('');
+            const [videoInputMode, setVideoInputMode] = useState('url'); // 'url' or 'upload'
+            // 編集用動画URL状態
+            const [editingVideoUrl, setEditingVideoUrl] = useState('');
+            const [editingVideoTitle, setEditingVideoTitle] = useState('');
+            const [editingVideoInputMode, setEditingVideoInputMode] = useState('url');
+
+            // 安全装置: progress が undefined の場合を考慮、古いステータス値も正規化
+            const rawProgress = progress || { status: '未着手', comments: [] };
+            const validStatus = STATUS_OPTIONS.includes(rawProgress.status) ? rawProgress.status : '未着手';
+            const currentProgress = { ...rawProgress, status: validStatus };
+            const itemPercentage = (STATUS_VALUE[currentProgress.status] || 0) * 100;
+            const sortedComments = useMemo(() => (currentProgress.comments || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date)), [currentProgress.comments]);
+
+            const handleVideoSelect = async (e) => {
+                const file = e.target.files[0];
+                if (file && file.type.startsWith('video/')) {
+                    if (file.size > 500 * 1024 * 1024) { // 500MB制限
+                        alert('動画ファイルは500MB以下にしてください');
+                        return;
+                    }
+                    const videoId = `video_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    try {
+                        await saveVideoToDB(videoId, file);
+                        const videoURL = URL.createObjectURL(file);
+                        setSelectedVideo(videoId);
+                        setVideoPreview(videoURL);
+                    } catch (error) {
+                        console.error('動画保存エラー:', error);
+                        alert('動画の保存に失敗しました');
+                    }
+                } else {
+                    alert('動画ファイルを選択してください');
+                }
+            };
+
+            const handleRemoveVideo = async () => {
+                if (selectedVideo) {
+                    try {
+                        await deleteVideoFromDB(selectedVideo);
+                    } catch (error) {
+                        console.error('動画削除エラー:', error);
+                    }
+                }
+                if (videoPreview) {
+                    URL.revokeObjectURL(videoPreview);
+                }
+                setSelectedVideo(null);
+                setVideoPreview(null);
+            };
+
+            const handleAddCommentClick = () => {
+                if (newComment.trim() && selectedDate) {
+                    const videoData = {
+                        video: selectedVideo,
+                        videoUrl: videoUrl.trim() || null,
+                        videoTitle: videoTitle.trim() || null
+                    };
+                    onAddComment(repId, item.id, newComment.trim(), selectedDate, videoData);
+                    setNewComment('');
+                    setSelectedVideo(null);
+                    setVideoPreview(null);
+                    setVideoUrl('');
+                    setVideoTitle('');
+                    setIsHistoryOpen(true);
+                }
+            };
+
+            const handleEditClick = (comment) => {
+                setEditingCommentId(comment.id);
+                setEditingText(comment.text);
+                setEditingDate(comment.date);
+                setEditingVideo(comment.video || null);
+                setEditingVideoPreview(null);
+                setEditingVideoUrl(comment.videoUrl || '');
+                setEditingVideoTitle(comment.videoTitle || '');
+                setEditingVideoInputMode(comment.videoUrl ? 'url' : 'upload');
+            };
+
+            const handleCancelEdit = async () => {
+                if (editingVideoPreview) {
+                    URL.revokeObjectURL(editingVideoPreview);
+                }
+                setEditingCommentId(null);
+                setEditingText('');
+                setEditingDate('');
+                setEditingVideo(null);
+                setEditingVideoPreview(null);
+                setEditingVideoUrl('');
+                setEditingVideoTitle('');
+                setEditingVideoInputMode('url');
+            };
+
+            const handleEditVideoSelect = async (e) => {
+                const file = e.target.files[0];
+                if (file && file.type.startsWith('video/')) {
+                    if (file.size > 500 * 1024 * 1024) {
+                        alert('動画ファイルは500MB以下にしてください');
+                        return;
+                    }
+                    const videoId = `video_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    try {
+                        await saveVideoToDB(videoId, file);
+                        const videoURL = URL.createObjectURL(file);
+                        setEditingVideo(videoId);
+                        setEditingVideoPreview(videoURL);
+                    } catch (error) {
+                        console.error('動画保存エラー:', error);
+                        alert('動画の保存に失敗しました');
+                    }
+                }
+            };
+
+            const handleRemoveEditVideo = async () => {
+                if (editingVideo) {
+                    try {
+                        await deleteVideoFromDB(editingVideo);
+                    } catch (error) {
+                        console.error('動画削除エラー:', error);
+                    }
+                }
+                if (editingVideoPreview) {
+                    URL.revokeObjectURL(editingVideoPreview);
+                }
+                setEditingVideo(null);
+                setEditingVideoPreview(null);
+            };
+
+            const handleSaveEdit = (commentId) => {
+                if (editingText.trim() && editingDate) {
+                    onUpdateComment(repId, item.id, commentId, {
+                        text: editingText.trim(),
+                        date: editingDate,
+                        video: editingVideo,
+                        videoUrl: editingVideoUrl.trim() || null,
+                        videoTitle: editingVideoTitle.trim() || null
+                    });
+                    handleCancelEdit();
+                }
+            };
+
+            return (
+                <div className={`p-4 border-2 rounded-lg hover:shadow-lg transition-all flex flex-col bg-white relative group ${isEditMode ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
+                    {isEditMode && (
+                        <div className="absolute -top-3 -right-3 flex gap-1 z-10">
+                            <div className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full font-bold shadow-md flex items-center gap-1">
+                                <LucideIcon name="edit-3" size={12}/> 編集中
+                            </div>
+                            <button onClick={() => onDeleteItem(item.id, item.name)} className="bg-red-500 text-white hover:bg-red-600 p-1.5 rounded-full transition-colors shadow-md" title="この項目を削除">
+                                <LucideIcon name="trash-2" size={14}/>
+                            </button>
+                        </div>
+                    )}
+                    <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                            {isEditMode ? (
+                                <div className="space-y-2 bg-white p-3 rounded-lg border border-blue-200">
+                                    <div>
+                                        <label className="text-xs font-bold text-blue-600 mb-1 block">項目名</label>
+                                        <input
+                                            type="text"
+                                            value={item.name}
+                                            onChange={(e) => onUpdateItem(item.id, { ...item, name: e.target.value })}
+                                            className="font-semibold text-gray-700 w-full border-2 border-blue-300 rounded px-2 py-1 focus:border-blue-500 focus:outline-none"
+                                            placeholder="研修項目名を入力"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-blue-600 mb-1 block">カテゴリ</label>
+                                        <select
+                                            value={item.category}
+                                            onChange={(e) => onUpdateItem(item.id, { ...item, category: e.target.value })}
+                                            className="text-sm text-gray-700 border-2 border-blue-300 rounded px-2 py-1 w-full focus:border-blue-500 focus:outline-none"
+                                        >
+                                            <option value="A研修_デビュー">A研修 (デビュー)</option>
+                                            <option value="B研修_1_5棟月">B研修 (1.5棟/月)</option>
+                                            <option value="C研修_独り立ち">C研修 (独り立ち)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    <p className="font-semibold text-gray-700">{item.name}</p>
+                                    <p className="text-sm text-gray-500">{categoryDisplayNames[item.category] || item.category}</p>
+                                </>
+                            )}
+                        </div>
+                        {!isEditMode && (
+                            <div className="ml-2 w-12 h-12 relative flex items-center justify-center">
+                               <div className="absolute inset-0 rounded-full border-4 border-gray-100"></div>
+                               <div className={`absolute inset-0 rounded-full border-4 border-blue-500 transition-all duration-500`} style={{ clipPath: `inset(${100 - itemPercentage}% 0 0 0)` }}></div>
+                               <span className="text-xs font-bold text-gray-700 z-10">{Math.round(itemPercentage)}%</span>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className={`mb-2 text-xs text-gray-600 p-2 rounded border ${isEditMode ? 'bg-white border-blue-200' : 'bg-gray-50 border-gray-100'}`}>
+                        <div className="font-bold flex justify-between items-center cursor-pointer hover:text-blue-600 transition-colors" onClick={() => setIsDescOpen(!isDescOpen)}>
+                            <span className="flex items-center gap-1"><LucideIcon name="book-open" size={16}/> 学習内容・ポイント</span>
+                            <span>{isDescOpen ? <LucideIcon name="chevron-up" size={16}/> : <LucideIcon name="chevron-down" size={16}/>}</span>
+                        </div>
+                        {isDescOpen && (
+                            isEditMode ? (
+                                <div className="mt-2">
+                                    <label className="text-xs font-bold text-blue-600 mb-1 block">詳細説明</label>
+                                    <textarea
+                                        value={item.description || ''}
+                                        onChange={(e) => onUpdateItem(item.id, { ...item, description: e.target.value })}
+                                        className="w-full p-2 border-2 border-blue-300 rounded text-sm resize-none h-32 focus:border-blue-500 focus:outline-none"
+                                        placeholder="学習内容・ポイントを入力..."
+                                    />
+                                </div>
+                            ) : (
+                                <div className="whitespace-pre-wrap mt-2 pt-2 border-t border-gray-200 animate-fade-in leading-relaxed">{item.description || "詳細内容は登録されていません。"}</div>
+                            )
+                        )}
+                    </div>
+
+                    <div className="mb-4 text-xs text-gray-600 bg-blue-50 p-2 rounded border border-blue-100">
+                        <div className="font-bold flex justify-between items-center cursor-pointer hover:text-blue-600 transition-colors" onClick={() => setIsHistoryOpen(!isHistoryOpen)}>
+                            <span className="flex items-center gap-1"><LucideIcon name="history" size={16}/> 活動履歴 ({sortedComments.length})</span>
+                            <span>{isHistoryOpen ? <LucideIcon name="chevron-up" size={16}/> : <LucideIcon name="chevron-down" size={16}/>}</span>
+                        </div>
+                        {isHistoryOpen && (
+                            <div className="mt-2 pt-2 border-t border-blue-200 animate-fade-in">
+                                {sortedComments.length === 0 ? <p className="text-gray-400 text-center py-2">履歴はありません。</p> : (
+                                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                        {sortedComments.map(c => (
+                                            <div key={c.id} className="bg-white p-2 rounded border border-blue-100 shadow-sm relative group">
+                                                {editingCommentId === c.id ? (
+                                                    <div className="flex flex-col gap-2">
+                                                        <label className="text-[10px] text-gray-500 font-bold">日付</label>
+                                                        <input type="date" value={editingDate} onChange={(e) => setEditingDate(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
+                                                        <label className="text-[10px] text-gray-500 font-bold">内容</label>
+                                                        <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} className="w-full p-1.5 border rounded text-xs resize-none h-16" />
+                                                        <label className="text-[10px] text-gray-500 font-bold">動画</label>
+                                                        <div className="flex gap-1 mb-1">
+                                                            <button onClick={() => setEditingVideoInputMode('url')} className={`flex-1 py-1 px-2 text-xs rounded ${editingVideoInputMode === 'url' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>URL入力</button>
+                                                            <button onClick={() => setEditingVideoInputMode('upload')} className={`flex-1 py-1 px-2 text-xs rounded ${editingVideoInputMode === 'upload' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>アップロード</button>
+                                                        </div>
+                                                        {editingVideoInputMode === 'url' ? (
+                                                            <div className="flex flex-col gap-1">
+                                                                <input type="text" placeholder="動画タイトル" value={editingVideoTitle} onChange={(e) => setEditingVideoTitle(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
+                                                                <input type="url" placeholder="動画URL (YouTube, Vimeo等)" value={editingVideoUrl} onChange={(e) => setEditingVideoUrl(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
+                                                                {editingVideoUrl && (
+                                                                    <div className="text-xs text-green-600 flex items-center gap-1">
+                                                                        <LucideIcon name="check-circle" size={12} /> URL設定済み
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                {editingVideo && !editingVideoPreview && (
+                                                                    <div className="relative">
+                                                                        <VideoPlayer videoId={editingVideo} className="w-full max-h-32 rounded border" />
+                                                                        <button onClick={handleRemoveEditVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
+                                                                            <LucideIcon name="x" size={14} />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                                {editingVideoPreview && (
+                                                                    <div className="relative">
+                                                                        <video src={editingVideoPreview} controls className="w-full max-h-32 rounded border" />
+                                                                        <button onClick={handleRemoveEditVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
+                                                                            <LucideIcon name="x" size={14} />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                                {!editingVideo && (
+                                                                    <input type="file" accept="video/*" onChange={handleEditVideoSelect} className="w-full p-1.5 border rounded text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                                                                )}
+                                                            </>
+                                                        )}
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => handleSaveEdit(c.id)} className="flex-1 bg-green-600 text-white py-1.5 rounded text-xs font-bold hover:bg-green-700 transition-colors" disabled={!editingText.trim() || !editingDate}>保存</button>
+                                                            <button onClick={handleCancelEdit} className="flex-1 bg-gray-400 text-white py-1.5 rounded text-xs font-bold hover:bg-gray-500 transition-colors">キャンセル</button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="flex justify-between items-center mb-1">
+                                                            <span className="font-bold text-blue-800">{c.date}</span>
+                                                            <div className="flex gap-1">
+                                                                <button onClick={() => handleEditClick(c)} className="text-gray-400 hover:text-blue-500" title="編集"><LucideIcon name="edit" size={14}/></button>
+                                                                <button onClick={() => onDeleteComment(repId, item.id, c.id)} className="text-gray-400 hover:text-red-500" title="削除"><LucideIcon name="trash-2" size={14}/></button>
+                                                            </div>
+                                                        </div>
+                                                        <p className="text-gray-700 whitespace-pre-wrap">{c.text}</p>
+                                                        {c.video && (
+                                                            <div className="mt-2">
+                                                                <VideoPlayer videoId={c.video} className="w-full max-h-48 rounded border border-gray-200" />
+                                                            </div>
+                                                        )}
+                                                        {c.videoUrl && (
+                                                            <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200">
+                                                                <a href={c.videoUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-blue-600 hover:text-blue-800 text-sm">
+                                                                    <LucideIcon name="video" size={16} />
+                                                                    <span className="font-medium">{c.videoTitle || '動画リンク'}</span>
+                                                                    <LucideIcon name="external-link" size={14} className="ml-auto" />
+                                                                </a>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                <div className="mt-3 pt-2 border-t border-blue-200 flex flex-col gap-2">
+                                    <label className="text-[10px] text-gray-500 font-bold">新規履歴追加</label>
+                                    <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
+                                    <textarea placeholder="活動内容・フィードバック..." value={newComment} onChange={(e) => setNewComment(e.target.value)} className="w-full p-1.5 border rounded text-xs resize-none h-16" ></textarea>
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-[10px] text-gray-500 font-bold">動画 (任意)</label>
+                                        <div className="flex gap-1 mb-1">
+                                            <button onClick={() => setVideoInputMode('url')} className={`flex-1 py-1 px-2 text-xs rounded ${videoInputMode === 'url' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>URL入力</button>
+                                            <button onClick={() => setVideoInputMode('upload')} className={`flex-1 py-1 px-2 text-xs rounded ${videoInputMode === 'upload' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>アップロード</button>
+                                        </div>
+                                        {videoInputMode === 'url' ? (
+                                            <div className="flex flex-col gap-1">
+                                                <input type="text" placeholder="動画タイトル" value={videoTitle} onChange={(e) => setVideoTitle(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
+                                                <input type="url" placeholder="動画URL (YouTube, Vimeo等)" value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)} className="w-full p-1.5 border rounded text-xs" />
+                                                {videoUrl && (
+                                                    <div className="text-xs text-green-600 flex items-center gap-1">
+                                                        <LucideIcon name="check-circle" size={12} /> URL設定済み
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <input type="file" accept="video/*" onChange={handleVideoSelect} className="w-full p-1.5 border rounded text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                                                {videoPreview && (
+                                                    <div className="relative">
+                                                        <video src={videoPreview} controls className="w-full max-h-32 rounded border" />
+                                                        <button onClick={handleRemoveVideo} className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 transition-colors" title="動画を削除">
+                                                            <LucideIcon name="x" size={14} />
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                    <button onClick={handleAddCommentClick} className="w-full bg-blue-600 text-white py-1.5 rounded text-xs font-bold hover:bg-blue-700 transition-colors disabled:opacity-50" disabled={!newComment.trim() || !selectedDate}>記録を追加</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    <div className="mt-auto space-y-3">
+                        <div className="w-full bg-gray-200 rounded-full h-2.5">
+                            <div className={`${STATUS_COLOR[currentProgress.status].bg} h-2.5 rounded-full`} style={{ width: `${itemPercentage}%` }}></div>
+                        </div>
+                        <select value={currentProgress.status} onChange={(e) => onStatusUpdate(repId, item.id, 'status', e.target.value)} className={`w-full p-2 border rounded-md ${STATUS_COLOR[currentProgress.status].text}`}>
+                            {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                    </div>
+                </div>
+            );
+        };
+
+        const SalesApp = () => {
+             // Version 20: Firebase integration for real-time sync
+             const [salesReps, setSalesReps, isLoadingSalesReps] = useFirebaseState('salesReps', salesInitialData.salesReps);
+             const [trainingItems, setTrainingItems, isLoadingTrainingItems] = useFirebaseState('trainingItems', salesInitialData.trainingItems);
+             const [progress, setProgress, isLoadingProgress] = useFirebaseState('progress', salesInitialData.progress);
+             const [contracts, setContracts, isLoadingContracts] = useFirebaseState('contracts', salesInitialData.contracts);
+             const [activeRepId, setActiveRepId] = useState(null);
+             const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
+             const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+             const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+             const [apiKey, setApiKey] = useState(localStorage.getItem('ghouse_api_key') || '');
+             const [toast, setToast] = useState({ message: '', type: 'success' });
+             const [isEditMode, setIsEditMode] = useState(false);
+             const [isRepManagementOpen, setIsRepManagementOpen] = useState(false);
+             const hasMigratedCategoriesRef = useRef(false);
+
+             const isLoading = isLoadingSalesReps || isLoadingTrainingItems || isLoadingProgress || isLoadingContracts;
+
+             // activeRepIdが有効なIDであることを確認
+             useEffect(() => {
+                 if (!isLoadingSalesReps && salesReps.length > 0 && (!activeRepId || !salesReps.find(r => r.id === activeRepId))) {
+                     setActiveRepId(salesReps[0].id);
+                 }
+             }, [isLoadingSalesReps, salesReps, activeRepId]);
+
+             // Migrate old category names to new Firebase-compatible format (one-time only)
+             useEffect(() => {
+                 if (!isLoadingTrainingItems && trainingItems && trainingItems.length > 0 && !hasMigratedCategoriesRef.current) {
+                     const categoryMigrationMap = {
+                         'A研修 (デビュー)': 'A研修_デビュー',
+                         'B研修 (1.5棟/月)': 'B研修_1_5棟月',
+                         'C研修 (独り立ち)': 'C研修_独り立ち'
+                     };
+
+                     let needsMigration = false;
+                     const migratedItems = trainingItems.map(item => {
+                         if (categoryMigrationMap[item.category]) {
+                             needsMigration = true;
+                             console.log(`Migrating category: ${item.category} → ${categoryMigrationMap[item.category]}`);
+                             return { ...item, category: categoryMigrationMap[item.category] };
+                         }
+                         return item;
+                     });
+
+                     if (needsMigration) {
+                         console.log('=== Category Migration Required ===');
+                         setTrainingItems(migratedItems);
+                         hasMigratedCategoriesRef.current = true;
+                     } else {
+                         hasMigratedCategoriesRef.current = true;
+                     }
+                 }
+             }, [isLoadingTrainingItems]);
+
+             const showToast = (message, type) => setToast({ message, type });
+             const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
+             const closeModal = () => setModalState({ ...modalState, isOpen: false });
+             const activeRep = salesReps.find(r => r.id === activeRepId);
+
+             // 営業担当者の管理
+             const handleAddRep = () => {
+                 const newId = 'rep' + (Math.max(...salesReps.map(r => parseInt(r.id.replace('rep', ''))), 0) + 1);
+                 const newRep = { id: newId, name: '新規担当者' };
+                 setSalesReps([...salesReps, newRep]);
+                 setActiveRepId(newId);
+                 showToast('担当者を追加しました', 'success');
+             };
+
+             const handleUpdateRep = (repId, newName) => {
+                 setSalesReps(salesReps.map(r => r.id === repId ? { ...r, name: newName } : r));
+             };
+
+             const handleDeleteRep = (repId, name) => {
+                 showModal('担当者削除', `「${name}」を削除してもよろしいですか？\n進捗データも削除されます。`, () => {
+                     const newReps = salesReps.filter(r => r.id !== repId);
+                     setSalesReps(newReps);
+                     const newProgress = { ...progress };
+                     delete newProgress[repId];
+                     setProgress(newProgress);
+                     if (activeRepId === repId) setActiveRepId(newReps[0]?.id || null);
+                     closeModal();
+                     showToast('担当者を削除しました', 'success');
+                 });
+             };
+
+             // 研修項目の管理
+             const handleAddTrainingItem = (category) => {
+                 const newId = 'item' + Date.now();
+                 const newItem = { id: newId, name: '新規研修項目', category: category, description: '' };
+                 setTrainingItems([...trainingItems, newItem]);
+                 showToast('研修項目を追加しました', 'success');
+             };
+
+             const handleUpdateTrainingItem = (itemId, updatedItem) => {
+                 setTrainingItems(trainingItems.map(item => item.id === itemId ? updatedItem : item));
+             };
+
+             const handleDeleteTrainingItem = (itemId, name) => {
+                 showModal('研修項目削除', `「${name}」を削除してもよろしいですか？\n全担当者の進捗データも削除されます。`, () => {
+                     setTrainingItems(trainingItems.filter(item => item.id !== itemId));
+                     const newProgress = { ...progress };
+                     Object.keys(newProgress).forEach(repId => {
+                         if (newProgress[repId][itemId]) {
+                             delete newProgress[repId][itemId];
+                         }
+                     });
+                     setProgress(newProgress);
+                     closeModal();
+                     showToast('研修項目を削除しました', 'success');
+                 });
+             };
+
+             const handleStatusUpdate = (repId, itemId, field, value) => {
+                 setProgress(prev => ({ ...prev, [repId]: { ...prev[repId], [itemId]: { ...(prev[repId]?.[itemId] || { status: '未着手', comments: [] }), [field]: value } } }));
+             };
+
+             const handleAddComment = (repId, itemId, text, date, videoData = null) => {
+                 const newComment = {
+                     id: Date.now(),
+                     date,
+                     text,
+                     video: videoData?.video || null,
+                     videoUrl: videoData?.videoUrl || null,
+                     videoTitle: videoData?.videoTitle || null
+                 };
+                 setProgress(prev => {
+                     const p = prev[repId] || {};
+                     const itemP = p[itemId] || { status: '未着手', comments: [] };
+                     return { ...prev, [repId]: { ...p, [itemId]: { ...itemP, comments: [...(itemP.comments||[]), newComment] } } };
+                 });
+                 showToast("コメントを追加しました", "success");
+             };
+
+             const handleUpdateComment = async (repId, itemId, commentId, updatedData) => {
+                 const oldComment = progress[repId]?.[itemId]?.comments?.find(c => c.id === commentId);
+
+                 // 古い動画があり、新しい動画IDと異なる場合は削除
+                 if (oldComment?.video && oldComment.video !== updatedData.video) {
+                     try {
+                         await deleteVideoFromDB(oldComment.video);
+                     } catch (error) {
+                         console.error('古い動画削除エラー:', error);
+                     }
+                 }
+
+                 setProgress(prev => {
+                     const p = JSON.parse(JSON.stringify(prev));
+                     if(p[repId] && p[repId][itemId]) {
+                         p[repId][itemId].comments = p[repId][itemId].comments.map(c =>
+                             c.id === commentId
+                                 ? {
+                                     ...c,
+                                     text: updatedData.text,
+                                     date: updatedData.date,
+                                     video: updatedData.video,
+                                     videoUrl: updatedData.videoUrl,
+                                     videoTitle: updatedData.videoTitle
+                                 }
+                                 : c
+                         );
+                     }
+                     return p;
+                 });
+                 showToast("履歴を更新しました", "success");
+             };
+
+             const handleDeleteComment = async (repId, itemId, commentId) => {
+                 showModal("コメント削除", "本当に削除しますか？", async () => {
+                     // 削除するコメントを取得
+                     const comment = progress[repId]?.[itemId]?.comments?.find(c => c.id === commentId);
+
+                     // 動画が含まれていればIndexedDBから削除
+                     if (comment?.video) {
+                         try {
+                             await deleteVideoFromDB(comment.video);
+                         } catch (error) {
+                             console.error('動画削除エラー:', error);
+                         }
+                     }
+
+                     setProgress(prev => {
+                         const p = JSON.parse(JSON.stringify(prev));
+                         if(p[repId] && p[repId][itemId]) {
+                            p[repId][itemId].comments = p[repId][itemId].comments.filter(c => c.id !== commentId);
+                         }
+                         return p;
+                     });
+                     closeModal();
+                     showToast("コメントを削除しました", "success");
+                 });
+             };
+
+             const calculateProgress = (repId) => {
+                 if (!trainingItems || trainingItems.length === 0) return 0;
+                 const p = progress[repId] || {};
+                 // ここでデータが存在しない場合のガードを入れる
+                 const total = trainingItems.reduce((acc, item) => {
+                     const status = p[item.id]?.status || '未着手';
+                     return acc + (STATUS_VALUE[status] || 0);
+                 }, 0);
+                 return (total / trainingItems.length) * 100;
+             };
+
+             const CircularProgress = ({ percentage }) => {
+                 const radius = 40; const stroke = 8; const normalizedRadius = radius - stroke * 2; const circumference = normalizedRadius * 2 * Math.PI; const strokeDashoffset = circumference - (percentage / 100) * circumference;
+                 return ( <div className="relative flex items-center justify-center w-32 h-32"> <svg height={radius * 2} width={radius * 2} className="transform -rotate-90"> <circle stroke="#e5e7eb" strokeWidth={stroke} fill="transparent" r={normalizedRadius} cx={radius} cy={radius} /> <circle stroke="#2563eb" strokeWidth={stroke} strokeDasharray={circumference + ' ' + circumference} style={{ strokeDashoffset }} strokeLinecap="round" fill="transparent" r={normalizedRadius} cx={radius} cy={radius} className="transition-all duration-500 ease-in-out" /> </svg> <div className="absolute text-2xl font-bold text-gray-700">{Math.round(percentage)}%</div> </div> );
+             };
+
+             const CategoryProgressBar = ({ category, percentage }) => {
+                 const displayName = categoryDisplayNames[category] || category;
+                 return (
+                     <div className="flex items-center w-full text-xs mb-2"> <span className="text-gray-600 w-24 truncate pr-2 text-right">{displayName}</span> <div className="flex-grow bg-gray-200 rounded-full h-2"> <div className="bg-blue-500 h-2 rounded-full transition-all duration-500" style={{ width: `${percentage}%` }}></div> </div> <span className="font-semibold text-gray-700 w-10 text-left pl-2">{Math.round(percentage)}%</span> </div>
+                 );
+             };
+
+             const itemsByCategory = useMemo(() => {
+                 if (!trainingItems) return {};
+                 return trainingItems.reduce((acc, item) => {
+                     (acc[item.category] = acc[item.category] || []).push(item);
+                     return acc;
+                 }, {});
+             }, [trainingItems]);
+
+             const categoryOrder = ['A研修_デビュー', 'B研修_1_5棟月', 'C研修_独り立ち'];
+
+             const categoryProgresses = useMemo(() => {
+                 return categoryOrder.map(category => {
+                     const items = itemsByCategory[category] || [];
+                     if (items.length === 0) return { category, percentage: 0 };
+                     const total = items.reduce((acc, item) => {
+                         const status = (progress[activeRepId] || {})[item.id]?.status || '未着手';
+                         return acc + (STATUS_VALUE[status] || 0);
+                     }, 0);
+                     return { category, percentage: (total / items.length) * 100 };
+                 });
+             }, [itemsByCategory, progress, activeRepId]);
+
+             // Show loading state after all Hooks
+             if (isLoading) {
+                 return (
+                     <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                         <div className="text-center">
+                             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
+                             <p className="text-gray-600">データを読み込み中...</p>
+                         </div>
+                     </div>
+                 );
+             }
+
+             return (
+                 <div className="bg-gray-100 h-full overflow-y-auto font-sans">
+                     <Toast {...toast} onDismiss={() => setToast({ ...toast, message: '' })} />
+                     <ConfirmModal {...modalState} onCancel={closeModal} />
+                     <ApiKeyModal isOpen={isApiKeyModalOpen} onClose={() => setIsApiKeyModalOpen(false)} onSave={(key) => { localStorage.setItem('ghouse_api_key', key); setApiKey(key); setIsApiKeyModalOpen(false); }} />
+                     <AIConsultModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} apiKey={apiKey} />
+                     <RepresentativeManagementModal
+                        isOpen={isRepManagementOpen}
+                        onClose={() => setIsRepManagementOpen(false)}
+                        salesReps={salesReps}
+                        onAddRep={handleAddRep}
+                        onUpdateRep={handleUpdateRep}
+                        onDeleteRep={handleDeleteRep}
+                     />
+
+                     <div className="container mx-auto px-4 py-8">
+                        <header className={`flex justify-between items-center mb-8 p-4 rounded-lg transition-all ${isEditMode ? 'bg-blue-50 border-2 border-blue-300' : ''}`}>
+                            <div>
+                                <h1 className="text-2xl font-bold text-gray-800">営業育成管理ダッシュボード</h1>
+                                {isEditMode && <p className="text-sm text-blue-600 font-semibold mt-1"><LucideIcon name="edit-3" size={14} className="inline mr-1"/> 編集モード中 - 担当者名や研修項目をクリックして編集できます</p>}
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => setIsRepManagementOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors font-bold shadow-sm text-sm">
+                                    <LucideIcon name="users" size={18} /> 担当者管理
+                                </button>
+                                <button onClick={() => setIsEditMode(!isEditMode)} className={`px-4 py-2 rounded-md font-bold shadow-sm text-sm transition-all ${isEditMode ? 'bg-green-600 text-white hover:bg-green-700 animate-pulse' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+                                    <LucideIcon name={isEditMode ? 'check' : 'edit'} size={18} className="inline mr-1" /> {isEditMode ? '編集を完了' : '編集モード'}
+                                </button>
+                                <button onClick={() => apiKey ? setIsAIModalOpen(true) : setIsApiKeyModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors font-bold shadow-sm text-sm"><LucideIcon name="brain" size={18} /> AI相談</button>
+                                <button onClick={() => setIsApiKeyModalOpen(true)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-md"><LucideIcon name="settings" size={20} /></button>
+                            </div>
+                        </header>
+                         <EducationScheduleHeader />
+                         <div className="mb-6 border-b border-gray-200 bg-white sticky top-0 z-10 overflow-x-auto whitespace-nowrap p-2 flex items-center gap-2">
+                             {salesReps.map(rep => (
+                                 <button key={rep.id} onClick={() => setActiveRepId(rep.id)} className={`px-4 py-3 border-b-2 font-medium text-sm transition-colors ${activeRepId === rep.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                                     {rep.name}
+                                 </button>
+                             ))}
+                         </div>
+                         {activeRep && (
+                             <div className="animate-fade-in">
+                                 <ErrorBoundary>
+                                     {/* Dashboard Top Section */}
+                                     <div className="bg-white p-6 rounded-lg shadow-md mb-8 flex flex-col md:flex-row gap-8">
+                                         <div className="flex flex-col items-center justify-center p-4 min-w-[200px]">
+                                             <h3 className="text-lg font-bold text-gray-700 mb-4">総合達成度</h3>
+                                             <CircularProgress percentage={calculateProgress(activeRep.id)} />
+                                         </div>
+                                         <div className="flex-1 border-l border-gray-100 pl-8">
+                                             <h3 className="text-lg font-bold text-gray-700 mb-4">カテゴリ別進捗</h3>
+                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
+                                                 {categoryProgresses.map(cp => (
+                                                     <CategoryProgressBar key={cp.category} category={cp.category} percentage={cp.percentage} />
+                                                 ))}
+                                             </div>
+                                         </div>
+                                     </div>
+
+                                     {/* Monthly Contracts Section */}
+                                     <MonthlyContractsCard
+                                        key={activeRep.id}
+                                        repId={activeRep.id}
+                                        contracts={contracts}
+                                        onUpdateContract={setContracts}
+                                        isEditMode={isEditMode}
+                                     />
+
+                                     {/* Training Items List by Category */}
+                                     <div className="space-y-8">
+                                         {categoryOrder.map(category => {
+                                             const items = itemsByCategory[category] || [];
+                                             const displayName = categoryDisplayNames[category] || category;
+                                             return (
+                                                 <div key={category}>
+                                                     <div className="flex items-center justify-between mb-4">
+                                                         <h3 className="text-xl font-bold text-gray-800 border-l-4 border-blue-500 pl-3">{displayName}</h3>
+                                                         {isEditMode && (
+                                                             <button onClick={() => handleAddTrainingItem(category)} className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-bold flex items-center gap-1">
+                                                                 <LucideIcon name="plus" size={16} /> 研修項目追加
+                                                             </button>
+                                                         )}
+                                                     </div>
+                                                     {items.length > 0 ? (
+                                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                                             {items.map(item => (
+                                                                 <TrainingItemCard
+                                                                     key={`${activeRep.id}-${item.id}`}
+                                                                     item={item}
+                                                                     repId={activeRep.id}
+                                                                     progress={(progress[activeRep.id] || {})[item.id]}
+                                                                     onStatusUpdate={handleStatusUpdate}
+                                                                     onAddComment={handleAddComment}
+                                                                     onDeleteComment={handleDeleteComment}
+                                                                    onUpdateComment={handleUpdateComment}
+                                                                     isEditMode={isEditMode}
+                                                                     onUpdateItem={handleUpdateTrainingItem}
+                                                                     onDeleteItem={handleDeleteTrainingItem}
+                                                                 />
+                                                             ))}
+                                                         </div>
+                                                     ) : (
+                                                         <div className="text-center text-gray-400 py-8 border-2 border-dashed border-gray-200 rounded-lg">
+                                                             このカテゴリには研修項目がありません
+                                                         </div>
+                                                     )}
+                                                 </div>
+                                             );
+                                         })}
+                                     </div>
+                                 </ErrorBoundary>
+                             </div>
+                         )}
+                     </div>
+                 </div>
+             );
+        };
+
+        // ==========================================
+        //  6. Debut Training App Components
+        // ==========================================
+        const DebutTrainingApp = () => {
+             const [trainingData, setTrainingData, isLoadingTrainingData] = useFirebaseState('debutTraining', initialDebutTrainingData);
+             const [toast, setToast] = useState({ message: '', type: 'success' });
+             const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
+             const [isEditMode, setIsEditMode] = useState(false);
+
+             // Simple data logging - no migration
+             useEffect(() => {
+                 if (!isLoadingTrainingData && trainingData) {
+                     console.log('=== Training Data Loaded ===');
+                     try {
+                         console.log('Training Data categories:', Object.keys(trainingData || {}).join(', '));
+                     } catch (e) {
+                         console.log('Could not log training data');
+                     }
+                 }
+             }, [isLoadingTrainingData]);
+
+             // Show loading state
+             if (isLoadingTrainingData) {
+                 return (
+                     <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                         <div className="text-center">
+                             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
+                             <p className="text-gray-600">データを読み込み中...</p>
+                         </div>
+                     </div>
+                 );
+             }
+
+             // Validate trainingData structure
+             if (!trainingData || typeof trainingData !== 'object') {
+                 return (
+                     <div className="flex h-full w-full items-center justify-center bg-gray-100">
+                         <div className="text-center">
+                             <p className="text-red-600">データの読み込みに失敗しました</p>
+                             <button
+                                 onClick={() => window.location.reload()}
+                                 className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                             >
+                                 再読み込み
+                             </button>
+                         </div>
+                     </div>
+                 );
+             }
+
+             const showToast = (message, type) => setToast({ message, type });
+             const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
+             const closeModal = () => setModalState({ ...modalState, isOpen: false });
+
+             const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB limit for Firebase Storage
+
+             const handleUploadPdf = async (category, itemId, file) => {
+                 const BASE64_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB for base64 fallback
+
+                 if (file.size > MAX_FILE_SIZE) {
+                     showToast(`ファイルサイズが大きすぎます（最大50MB）: ${(file.size / 1024 / 1024).toFixed(1)}MB`, 'error');
+                     return;
+                 }
+
+                 const timestamp = Date.now();
+                 let pdfWithId;
+
+                 try {
+                     showToast('アップロード中...', 'info');
+                     const storagePath = `debutTraining/${category}/${itemId}/pdf_${timestamp}_${file.name}`;
+                     const downloadURL = await uploadToStorage(file, storagePath);
+                     pdfWithId = {
+                         _id: `pdf_${timestamp}_${Math.random()}`,
+                         name: file.name,
+                         url: downloadURL,
+                         storagePath: storagePath
+                     };
+                     showToast('PDFを追加しました (Storage)', 'success');
+                 } catch (storageError) {
+                     console.warn('Storage upload failed, trying base64 fallback:', storageError.message);
+
+                     // Fallback to base64 for smaller files
+                     if (file.size > BASE64_SIZE_LIMIT) {
+                         showToast(`Storageが利用できません。5MB以下のファイルのみ対応可能です。`, 'error');
+                         return;
+                     }
+
+                     try {
+                         showToast('代替方式でアップロード中...', 'info');
+                         const dataUrl = await fileToDataUrl(file);
+                         pdfWithId = {
+                             _id: `pdf_${timestamp}_${Math.random()}`,
+                             name: file.name,
+                             url: dataUrl
+                         };
+                         showToast('PDFを追加しました', 'success');
+                     } catch (base64Error) {
+                         console.error('Base64 fallback also failed:', base64Error);
+                         showToast('アップロードに失敗しました', 'error');
+                         return;
+                     }
+                 }
+
+                 setTrainingData(prev => {
+                     const newData = {...prev};
+                     newData[category] = (newData[category] || []).map(item => {
+                         if(item.id === itemId) {
+                             return {...item, pdfs: [...(item.pdfs || []), pdfWithId]};
+                         }
+                         return item;
+                     });
+                     return newData;
+                 });
+             };
+
+             const handleDeletePdf = (category, itemId, pdfId) => {
+                 showModal('PDF削除', 'このPDFを削除してもよろしいですか？', async () => {
+                     // Find the PDF to get its storage path
+                     const item = trainingData[category]?.find(i => i.id === itemId);
+                     const pdfToDelete = item?.pdfs?.find(pdf => pdf._id === pdfId);
+
+                     // Delete from Storage if storagePath exists
+                     if (pdfToDelete?.storagePath) {
+                         await deleteFromStorage(pdfToDelete.storagePath);
+                     }
+
+                     setTrainingData(prev => {
+                         const newData = {...prev};
+                         newData[category] = (newData[category] || []).map(item => {
+                             if(item.id === itemId) {
+                                 // Try to filter by _id first, if not found, try by constructed key
+                                 let newPdfs = (item.pdfs || []).filter(pdf => pdf._id !== pdfId);
+
+                                 // If nothing was filtered (meaning pdfId is a fallback key), use index
+                                 if (newPdfs.length === item.pdfs.length && pdfId.startsWith('pdf-')) {
+                                     const idx = parseInt(pdfId.split('-').pop());
+                                     if (!isNaN(idx)) {
+                                         newPdfs = [...item.pdfs];
+                                         newPdfs.splice(idx, 1);
+                                     }
+                                 }
+
+                                 return {...item, pdfs: newPdfs};
+                             }
+                             return item;
+                         });
+                         return newData;
+                     });
+                     showToast('PDFを削除しました', 'success');
+                     closeModal();
+                 });
+             };
+
+             const handleUploadPpt = async (category, itemId, file) => {
+                 const BASE64_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB for base64 fallback
+
+                 if (file.size > MAX_FILE_SIZE) {
+                     showToast(`ファイルサイズが大きすぎます（最大50MB）: ${(file.size / 1024 / 1024).toFixed(1)}MB`, 'error');
+                     return;
+                 }
+
+                 const timestamp = Date.now();
+                 let pptWithId;
+
+                 try {
+                     showToast('アップロード中...', 'info');
+                     const storagePath = `debutTraining/${category}/${itemId}/ppt_${timestamp}_${file.name}`;
+                     const downloadURL = await uploadToStorage(file, storagePath);
+                     pptWithId = {
+                         _id: `ppt_${timestamp}_${Math.random()}`,
+                         name: file.name,
+                         url: downloadURL,
+                         storagePath: storagePath
+                     };
+                     showToast('PowerPointを追加しました (Storage)', 'success');
+                 } catch (storageError) {
+                     console.warn('Storage upload failed, trying base64 fallback:', storageError.message);
+
+                     // Fallback to base64 for smaller files
+                     if (file.size > BASE64_SIZE_LIMIT) {
+                         showToast(`Storageが利用できません。5MB以下のファイルのみ対応可能です。`, 'error');
+                         return;
+                     }
+
+                     try {
+                         showToast('代替方式でアップロード中...', 'info');
+                         const dataUrl = await fileToDataUrl(file);
+                         pptWithId = {
+                             _id: `ppt_${timestamp}_${Math.random()}`,
+                             name: file.name,
+                             url: dataUrl
+                         };
+                         showToast('PowerPointを追加しました', 'success');
+                     } catch (base64Error) {
+                         console.error('Base64 fallback also failed:', base64Error);
+                         showToast('アップロードに失敗しました', 'error');
+                         return;
+                     }
+                 }
+
+                 setTrainingData(prev => {
+                     const newData = {...prev};
+                     newData[category] = (newData[category] || []).map(item => {
+                         if(item.id === itemId) {
+                             return {...item, ppts: [...(item.ppts || []), pptWithId]};
+                         }
+                         return item;
+                     });
+                     return newData;
+                 });
+             };
+
+             const handleDeletePpt = (category, itemId, pptId) => {
+                 showModal('PowerPoint削除', 'このPowerPointを削除してもよろしいですか？', async () => {
+                     // Find the PPT to get its storage path
+                     const item = trainingData[category]?.find(i => i.id === itemId);
+                     const pptToDelete = item?.ppts?.find(ppt => ppt._id === pptId);
+
+                     // Delete from Storage if storagePath exists
+                     if (pptToDelete?.storagePath) {
+                         await deleteFromStorage(pptToDelete.storagePath);
+                     }
+
+                     setTrainingData(prev => {
+                         const newData = {...prev};
+                         newData[category] = (newData[category] || []).map(item => {
+                             if(item.id === itemId) {
+                                 let newPpts = (item.ppts || []).filter(ppt => ppt._id !== pptId);
+                                 if (newPpts.length === (item.ppts || []).length && pptId.startsWith('ppt-')) {
+                                     const idx = parseInt(pptId.split('-').pop());
+                                     if (!isNaN(idx)) {
+                                         newPpts = [...(item.ppts || [])];
+                                         newPpts.splice(idx, 1);
+                                     }
+                                 }
+                                 return {...item, ppts: newPpts};
+                             }
+                             return item;
+                         });
+                         return newData;
+                     });
+                     showToast('PowerPointを削除しました', 'success');
+                     closeModal();
+                 });
+             };
+
+             const handleOpenPpt = async (doc) => {
+                 try {
+                     if (doc.url && doc.url.startsWith('data:')) {
+                         const blobUrl = dataUrlToBlobUrl(doc.url);
+                         const link = document.createElement('a');
+                         link.href = blobUrl;
+                         link.download = doc.name;
+                         link.click();
+                         setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+                         return;
+                     }
+                     alert('PowerPointをダウンロードします: ' + doc.name);
+                 } catch (e) {
+                     alert('ファイルを開けませんでした');
+                 }
+             };
+
+             const handleAddUrl = (category, itemId, url, title = '') => {
+                 if (!url) return;
+                 // Create URL object with unique ID and title
+                 const urlWithId = { _id: `url_${Date.now()}_${Math.random()}`, url: url, title: title };
+                 setTrainingData(prev => {
+                     const newData = {...prev};
+                     newData[category] = (newData[category] || []).map(item => {
+                         if (item.id === itemId) {
+                             return { ...item, urls: [...(item.urls || []), urlWithId] };
+                         }
+                         return item;
+                     });
+                     return newData;
+                 });
+                 showToast('URLを追加しました', 'success');
+             };
+
+             const handleUpdateUrl = (category, itemId, urlId, updates) => {
+                 setTrainingData(prev => {
+                     const newData = {...prev};
+                     newData[category] = (newData[category] || []).map(item => {
+                         if (item.id === itemId) {
+                             const newUrls = (item.urls || []).map(urlItem => {
+                                 if (urlItem._id === urlId) {
+                                     return { ...urlItem, ...updates };
+                                 }
+                                 return urlItem;
+                             });
+                             return { ...item, urls: newUrls };
+                         }
+                         return item;
+                     });
+                     return newData;
+                 });
+             };
+
+             const handleDeleteUrl = (category, itemId, urlId) => {
+                 showModal('URL削除', 'このURLを削除してもよろしいですか？', () => {
+                    setTrainingData(prev => {
+                        const newData = {...prev};
+                        newData[category] = (newData[category] || []).map(item => {
+                            if (item.id === itemId) {
+                                // Try to filter by _id first
+                                let newUrls = (item.urls || []).filter(urlItem => {
+                                    const id = typeof urlItem === 'object' ? urlItem._id : null;
+                                    return id !== urlId;
+                                });
+
+                                // If nothing was filtered (meaning urlId is a fallback key), use index
+                                if (newUrls.length === item.urls.length && urlId.startsWith('url-')) {
+                                    const idx = parseInt(urlId.split('-').pop());
+                                    if (!isNaN(idx)) {
+                                        newUrls = [...item.urls];
+                                        newUrls.splice(idx, 1);
+                                    }
+                                }
+
+                                return { ...item, urls: newUrls };
+                            }
+                            return item;
+                        });
+                        return newData;
+                    });
+                    showToast('URLを削除しました', 'success');
+                    closeModal();
+                 });
+             };
+
+
+             const handleUpdateTitle = (category, itemId, newTitle) => {
+                 setTrainingData(prev => {
+                     const newData = {...prev};
+                     newData[category] = (newData[category] || []).map(item =>
+                         item.id === itemId ? {...item, title: newTitle} : item
+                     );
+                     return newData;
+                 });
+             };
+
+             const handleAddItem = (category) => {
+                 const newId = `new_${Date.now()}`;
+                 setTrainingData(prev => ({
+                     ...prev,
+                     [category]: [...(prev[category] || []), { id: newId, title: '新規項目', pdfs: [], ppts: [], urls: [] }]
+                 }));
+             };
+
+             const handleDeleteItem = (category, itemId) => {
+                 showModal('項目削除', 'この項目を削除してもよろしいですか？', () => {
+                     setTrainingData(prev => ({
+                         ...prev,
+                         [category]: (prev[category] || []).filter(item => item.id !== itemId)
+                     }));
+                     closeModal();
+                 });
+             };
+
+             const handleOpenPdf = async (doc) => {
+                try {
+                    if (doc.url && doc.url.startsWith('data:')) {
+                        const blobUrl = dataUrlToBlobUrl(doc.url);
+                        const win = window.open(blobUrl, '_blank');
+                        if (win) {
+                            win.addEventListener('beforeunload', () => URL.revokeObjectURL(blobUrl));
+                            return;
+                        }
+                    }
+                    alert('PDFを開きます: ' + doc.name);
+                } catch (e) {
+                    alert('ファイルを開けませんでした');
+                }
+             };
+
+             // Items reordering logic
+             const handleDragStart = (e, category, index) => {
+                 e.dataTransfer.setData("category", category);
+                 e.dataTransfer.setData("index", index);
+             };
+
+             const handleDragOver = (e) => {
+                 e.preventDefault();
+             };
+
+             const handleDrop = (e, targetCategory, targetIndex) => {
+                 const sourceCategory = e.dataTransfer.getData("category");
+                 const sourceIndex = parseInt(e.dataTransfer.getData("index"), 10);
+
+                 if (sourceCategory === targetCategory && sourceIndex !== targetIndex) {
+                     setTrainingData(prev => {
+                         const newItems = [...(prev[sourceCategory] || [])];
+                         const [reorderedItem] = newItems.splice(sourceIndex, 1);
+                         newItems.splice(targetIndex, 0, reorderedItem);
+                         return { ...prev, [sourceCategory]: newItems };
+                     });
+                 }
+             };
+
+             const handleResetData = () => {
+                 showModal('データリセット', 'デビュー研修のデータを初期状態にリセットしますか？（アップロードしたファイルは全て削除されます）', () => {
+                     database.ref('debutTraining').set(initialDebutTrainingData)
+                         .then(() => {
+                             showToast('データをリセットしました', 'success');
+                             window.location.reload();
+                         })
+                         .catch(error => {
+                             showToast('リセットに失敗しました', 'error');
+                             console.error(error);
+                         });
+                     closeModal();
+                 });
+             };
+
+             return (
+                 <div className="bg-gray-100 h-full font-sans p-8 overflow-y-auto">
+                     <Toast {...toast} onDismiss={() => setToast({ ...toast, message: '' })} />
+                     <ConfirmModal {...modalState} onCancel={closeModal} />
+                     <div className="max-w-7xl mx-auto">
+                        <div className="flex justify-between items-center mb-8">
+                            <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
+                                <LucideIcon name="graduation-cap" className="text-indigo-600" size={32}/> デビュー研修一覧
+                            </h1>
+                            <div className="flex gap-2">
+                                {isEditMode && (
+                                    <button
+                                        onClick={handleResetData}
+                                        className="px-4 py-2 rounded text-sm font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
+                                    >
+                                        リセット
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => setIsEditMode(!isEditMode)}
+                                    className={`px-4 py-2 rounded text-sm font-bold transition-colors ${isEditMode ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                >
+                                    {isEditMode ? '完了' : '編集'}
+                                </button>
+                            </div>
+                        </div>
+
+                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                             {['A研修_デビュー', 'B研修_1_5棟月', 'C研修_独り立ち'].map(category => {
+                                const displayNames = {
+                                    'A研修_デビュー': 'A研修 (デビュー)',
+                                    'B研修_1_5棟月': 'B研修 (1.5棟/月)',
+                                    'C研修_独り立ち': 'C研修 (独り立ち)'
+                                };
+                                const displayName = displayNames[category] || category;
+                                return (
+                                 <div key={category} className="bg-white rounded-xl shadow-md overflow-hidden flex flex-col h-full">
+                                     <div className={`p-4 font-bold text-white text-center text-lg ${category === 'A研修_デビュー' ? 'bg-blue-600' : category === 'B研修_1_5棟月' ? 'bg-indigo-600' : 'bg-purple-600'}`}>
+                                         {displayName}
+                                     </div>
+                                     <div className="p-4 flex-1 overflow-y-auto">
+                                         <div className="space-y-4">
+                                             {(trainingData[category] || []).map((item, index) => {
+                                                 if (!item || !item.id) return null;
+                                                 return (
+                                                     <div
+                                                        key={item.id}
+                                                        className={`border rounded-lg p-3 bg-gray-50 hover:shadow-sm transition-shadow ${isEditMode ? "cursor-move" : ""}`}
+                                                        draggable={isEditMode}
+                                                        onDragStart={(e) => handleDragStart(e, category, index)}
+                                                        onDragOver={handleDragOver}
+                                                        onDrop={(e) => handleDrop(e, category, index)}
+                                                     >
+                                                     <div className="flex justify-between items-start mb-2">
+                                                         <div className="flex items-center flex-1 mr-2">
+                                                            {isEditMode && <LucideIcon name="grip-vertical" className="mr-2 text-gray-400 flex-shrink-0" size={16}/>}
+                                                             <input
+                                                                 type="text"
+                                                                 value={item.title}
+                                                                 onChange={(e) => handleUpdateTitle(category, item.id, e.target.value)}
+                                                                 className={`font-bold text-gray-700 bg-transparent ${isEditMode ? "" : "pointer-events-none"} border-b ${isEditMode ? "border-transparent hover:border-gray-300" : "border-transparent"} focus:border-blue-500 focus:outline-none w-full`}
+                                                             />
+                                                         </div>
+                                                        {isEditMode && (
+                                                            <button type="button" onClick={() => handleDeleteItem(category, item.id)} className="text-gray-400 hover:text-red-500"><LucideIcon name="trash-2" size={16}/></button>
+                                                        )}
+                                                     </div>
+
+                                                     {/* PDF List */}
+                                                     <div className="space-y-2 mb-3">
+                                                         {(item.pdfs || []).map((pdf, idx) => {
+                                                             try {
+                                                                 if (!pdf || !pdf.name) return null;
+                                                                 const pdfKey = (pdf && pdf._id) || `pdf-${item.id}-${idx}`;
+                                                                 return (
+                                                                     <div key={pdfKey} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
+                                                                         <div onClick={() => handleOpenPdf(pdf)} className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2">
+                                                                             <LucideIcon name="file-text" size={14} className="mr-1 text-red-500 flex-shrink-0"/>
+                                                                             <span className="truncate">{pdf.name}</span>
+                                                                         </div>
+                                                                        {isEditMode && (
+                                                                            <button type="button" onClick={() => handleDeletePdf(category, item.id, pdfKey)} className="text-gray-400 hover:text-red-500">×</button>
+                                                                        )}
+                                                                     </div>
+                                                                 );
+                                                             } catch (e) {
+                                                                 console.error('Error rendering PDF item:', e);
+                                                                 return null;
+                                                             }
+                                                         })}
+                                                     </div>
+                                                    {/* PDF Upload Button */}
+                                                    {isEditMode && (
+                                                        <label
+                                                            className="flex flex-col items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-blue-400 transition-colors text-xs text-gray-500 mb-3"
+                                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add('bg-blue-50', 'border-blue-400'); }}
+                                                            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('bg-blue-50', 'border-blue-400'); }}
+                                                            onDrop={(e) => {
+                                                                e.preventDefault(); e.stopPropagation();
+                                                                e.currentTarget.classList.remove('bg-blue-50', 'border-blue-400');
+                                                                const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf' || f.name.endsWith('.pdf'));
+                                                                files.forEach(file => handleUploadPdf(category, item.id, file));
+                                                            }}
+                                                        >
+                                                            <LucideIcon name="upload" size={14} className="mb-1"/>
+                                                            <span>PDFを追加</span>
+                                                            <span className="text-gray-400" style={{fontSize: '10px'}}>ドラッグ&ドロップ可</span>
+                                                            <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files[0] && handleUploadPdf(category, item.id, e.target.files[0])} />
+                                                        </label>
+                                                    )}
+
+                                                     {/* PowerPoint List */}
+                                                     <div className="space-y-2 mb-3">
+                                                         {(item.ppts || []).map((ppt, idx) => {
+                                                             try {
+                                                                 if (!ppt || !ppt.name) return null;
+                                                                 const pptKey = (ppt && ppt._id) || `ppt-${item.id}-${idx}`;
+                                                                 return (
+                                                                     <div key={pptKey} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-gray-200">
+                                                                         <div onClick={() => handleOpenPpt(ppt)} className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2">
+                                                                             <LucideIcon name="presentation" size={14} className="mr-1 text-orange-500 flex-shrink-0"/>
+                                                                             <span className="truncate">{ppt.name}</span>
+                                                                         </div>
+                                                                        {isEditMode && (
+                                                                            <button type="button" onClick={() => handleDeletePpt(category, item.id, pptKey)} className="text-gray-400 hover:text-red-500">×</button>
+                                                                        )}
+                                                                     </div>
+                                                                 );
+                                                             } catch (e) {
+                                                                 console.error('Error rendering PPT item:', e);
+                                                                 return null;
+                                                             }
+                                                         })}
+                                                     </div>
+                                                    {/* PowerPoint Upload Button */}
+                                                    {isEditMode && (
+                                                        <label
+                                                            className="flex flex-col items-center justify-center w-full p-2 border-2 border-dashed border-gray-300 rounded cursor-pointer hover:bg-gray-100 hover:border-orange-400 transition-colors text-xs text-gray-500 mb-3"
+                                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add('bg-orange-50', 'border-orange-400'); }}
+                                                            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('bg-orange-50', 'border-orange-400'); }}
+                                                            onDrop={(e) => {
+                                                                e.preventDefault(); e.stopPropagation();
+                                                                e.currentTarget.classList.remove('bg-orange-50', 'border-orange-400');
+                                                                const files = Array.from(e.dataTransfer.files).filter(f => f.name.match(/\.(ppt|pptx|pptm)$/i));
+                                                                files.forEach(file => handleUploadPpt(category, item.id, file));
+                                                            }}
+                                                        >
+                                                            <LucideIcon name="upload" size={14} className="mb-1"/>
+                                                            <span>PowerPointを追加</span>
+                                                            <span className="text-gray-400" style={{fontSize: '10px'}}>ドラッグ&ドロップ可</span>
+                                                            <input type="file" accept=".ppt,.pptx,.pptm" className="hidden" onChange={(e) => e.target.files[0] && handleUploadPpt(category, item.id, e.target.files[0])} />
+                                                        </label>
+                                                    )}
+
+                                                     {/* URL List */}
+                                                     <div className="space-y-2 mb-3">
+                                                        {(item.urls || []).map((urlItem, idx) => {
+                                                            try {
+                                                                const urlString = typeof urlItem === 'string' ? urlItem : (urlItem && urlItem.url) || '';
+                                                                const urlTitle = (urlItem && typeof urlItem === 'object' && urlItem.title) || '';
+                                                                const urlKey = (urlItem && typeof urlItem === 'object' && urlItem._id) || `url-${item.id}-${idx}`;
+                                                                if (!urlString) return null;
+
+                                                                if (isEditMode) {
+                                                                    return (
+                                                                        <div key={urlKey} className="text-xs bg-white p-2 rounded border border-gray-200 space-y-1">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <LucideIcon name="link" size={14} className="text-blue-500 flex-shrink-0"/>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={urlTitle}
+                                                                                    onChange={(e) => handleUpdateUrl(category, item.id, urlKey, { title: e.target.value })}
+                                                                                    placeholder="タイトルを入力..."
+                                                                                    className="flex-1 p-1 border border-gray-300 rounded text-xs"
+                                                                                />
+                                                                                <button onClick={() => handleDeleteUrl(category, item.id, urlKey)} className="text-gray-400 hover:text-red-500 flex-shrink-0">×</button>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 pl-5">
+                                                                                <input
+                                                                                    type="url"
+                                                                                    value={urlString}
+                                                                                    onChange={(e) => handleUpdateUrl(category, item.id, urlKey, { url: e.target.value })}
+                                                                                    placeholder="URLを入力..."
+                                                                                    className="flex-1 p-1 border border-gray-300 rounded text-xs text-blue-600"
+                                                                                />
+                                                                                <a href={urlString} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 flex-shrink-0">
+                                                                                    <LucideIcon name="external-link" size={14}/>
+                                                                                </a>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                return (
+                                                                    <div key={urlKey} className="flex items-center text-xs bg-white p-2 rounded border border-gray-200">
+                                                                        <a href={urlString} target="_blank" rel="noopener noreferrer" className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 text-blue-500">
+                                                                            <LucideIcon name="link" size={14} className="mr-1 flex-shrink-0"/>
+                                                                            <span className="truncate">{urlTitle || urlString}</span>
+                                                                        </a>
+                                                                    </div>
+                                                                );
+                                                            } catch (e) {
+                                                                console.error('Error rendering URL item:', e);
+                                                                return null;
+                                                            }
+                                                        })}
+                                                     </div>
+
+                                                     {/* Add URL Input */}
+                                                    {isEditMode && (
+                                                     <div className="space-y-1 bg-gray-50 p-2 rounded border border-dashed border-gray-300">
+                                                        <div className="flex items-center gap-1">
+                                                            <LucideIcon name="link" size={14} className="text-gray-400 flex-shrink-0"/>
+                                                            <input
+                                                                type="text"
+                                                                placeholder="タイトル（任意）"
+                                                                className="flex-1 p-1.5 border rounded text-xs"
+                                                                id={`url-title-input-${item.id}`}
+                                                            />
+                                                        </div>
+                                                        <div className="flex items-center gap-1 pl-5">
+                                                            <input
+                                                                type="url"
+                                                                placeholder="https://..."
+                                                                className="flex-1 p-1.5 border rounded text-xs"
+                                                                id={`url-input-${item.id}`}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        const titleInput = document.getElementById(`url-title-input-${item.id}`);
+                                                                        handleAddUrl(category, item.id, e.target.value, titleInput.value);
+                                                                        e.target.value = '';
+                                                                        titleInput.value = '';
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <button
+                                                                onClick={() => {
+                                                                    const input = document.getElementById(`url-input-${item.id}`);
+                                                                    const titleInput = document.getElementById(`url-title-input-${item.id}`);
+                                                                    if (input.value) {
+                                                                        handleAddUrl(category, item.id, input.value, titleInput.value);
+                                                                        input.value = '';
+                                                                        titleInput.value = '';
+                                                                    }
+                                                                }}
+                                                                className="bg-blue-500 text-white p-1.5 rounded hover:bg-blue-600"
+                                                            >
+                                                                <LucideIcon name="plus" size={14} />
+                                                            </button>
+                                                        </div>
+                                                     </div>
+                                                    )}
+                                                 </div>
+                                             );
+                                             })}
+                                         </div>
+                                     </div>
+                                     <div className="p-4 border-t bg-gray-50">
+                                        {isEditMode && (
+                                                                                 <button type="button" onClick={() => handleAddItem(category)} className="w-full py-2 bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-100 text-sm font-bold flex items-center justify-center">
+                                                                                     <LucideIcon name="plus" size={16} className="mr-1"/> 項目追加
+                                                                                 </button>
+                                        )}
+                                     </div>
+                                 </div>
+                             );
+                             })}
+                         </div>
+                     </div>
+                 </div>
+             );
+        };
+
+        // ==========================================
+        //  5.5. StockCon Info App
+        // ==========================================
+
+        const initialStockConData = [
+            { id: 1, name: 'サンプル会社A', fundingPlanPdfs: [], planPdfs: [], urls: [], otherInfo: '' },
+            { id: 2, name: 'サンプル会社B', fundingPlanPdfs: [], planPdfs: [], urls: [], otherInfo: '' },
+        ];
+
+        const StockConInfoApp = () => {
+            const [companies, setCompanies, isLoading] = useFirebaseState('stockConCompanies', initialStockConData);
+            const [selectedCompanyId, setSelectedCompanyId] = useState(null);
+            const [isEditMode, setIsEditMode] = useState(false);
+            const [modalState, setModalState] = useState({ isOpen: false, title: "", message: "", onConfirm: () => {} });
+            const [toast, setToast] = useState({ message: '', type: 'success' });
+
+            useEffect(() => {
+                if (!isLoading && companies.length > 0 && !selectedCompanyId) {
+                    setSelectedCompanyId(companies[0]?.id);
+                }
+            }, [isLoading, companies, selectedCompanyId]);
+
+            const selectedCompany = companies.find(c => c.id === selectedCompanyId);
+            const showModal = (title, message, onConfirm) => setModalState({ isOpen: true, title, message, onConfirm });
+            const closeModal = () => setModalState({ ...modalState, isOpen: false });
+            const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast({ message: '', type: 'success' }), 3000); };
+
+            const handleAddCompany = () => {
+                const newId = Math.max(...companies.map(c => c.id), 0) + 1;
+                const newCompany = { id: newId, name: '新規会社', fundingPlanPdfs: [], planPdfs: [], urls: [], otherInfo: '' };
+                setCompanies([...companies, newCompany]);
+                setSelectedCompanyId(newId);
+                showToast('会社を追加しました', 'success');
+            };
+
+            const handleUpdateCompany = (id, field, value) => {
+                setCompanies(companies.map(c => c.id === id ? { ...c, [field]: value } : c));
+            };
+
+            const handleDeleteCompany = (id) => {
+                const company = companies.find(c => c.id === id);
+                showModal('会社削除', `「${company?.name}」を削除してもよろしいですか？`, () => {
+                    const newCompanies = companies.filter(c => c.id !== id);
+                    setCompanies(newCompanies);
+                    if (selectedCompanyId === id) setSelectedCompanyId(newCompanies[0]?.id || null);
+                    closeModal();
+                    showToast('会社を削除しました', 'success');
+                });
+            };
+
+            const handlePdfUpload = (companyId, field, file) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const newPdf = { name: file.name, data: event.target.result };
+                    const company = companies.find(c => c.id === companyId);
+                    const currentPdfs = company[field] || [];
+                    handleUpdateCompany(companyId, field, [...currentPdfs, newPdf]);
+                    showToast('PDFを追加しました', 'success');
+                };
+                reader.readAsDataURL(file);
+            };
+
+            const handlePdfDelete = (companyId, field, index) => {
+                const company = companies.find(c => c.id === companyId);
+                const newPdfs = [...(company[field] || [])];
+                newPdfs.splice(index, 1);
+                handleUpdateCompany(companyId, field, newPdfs);
+                showToast('PDFを削除しました', 'success');
+            };
+
+            const handleOpenPdf = (pdf) => {
+                const link = document.createElement('a');
+                link.href = pdf.data;
+                link.download = pdf.name;
+                link.click();
+            };
+
+            const handleAddUrl = (companyId, url, title = '') => {
+                if (!url) return;
+                const company = companies.find(c => c.id === companyId);
+                const newUrl = { _id: `url_${Date.now()}_${Math.random()}`, url, title };
+                handleUpdateCompany(companyId, 'urls', [...(company.urls || []), newUrl]);
+                showToast('URLを追加しました', 'success');
+            };
+
+            const handleDeleteUrl = (companyId, urlId) => {
+                const company = companies.find(c => c.id === companyId);
+                const newUrls = (company.urls || []).filter(u => u._id !== urlId);
+                handleUpdateCompany(companyId, 'urls', newUrls);
+                showToast('URLを削除しました', 'success');
+            };
+
+            const handleUpdateUrl = (companyId, urlId, updates) => {
+                const company = companies.find(c => c.id === companyId);
+                const newUrls = (company.urls || []).map(u => u._id === urlId ? { ...u, ...updates } : u);
+                handleUpdateCompany(companyId, 'urls', newUrls);
+            };
+
+            if (isLoading) {
+                return (
+                    <div className="flex items-center justify-center h-full">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600 mx-auto mb-4"></div>
+                            <p className="text-gray-600">読み込み中...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="bg-gray-100 min-h-full font-sans p-6 overflow-y-auto">
+                    <Toast {...toast} onDismiss={() => setToast({ ...toast, message: '' })} />
+                    <ConfirmModal {...modalState} onCancel={closeModal} />
+                    <div className="max-w-7xl mx-auto">
+                        <div className="flex items-center justify-between mb-6">
+                            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                <LucideIcon name="building" className="text-orange-600" size={28}/> ストコン情報
+                            </h1>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setIsEditMode(!isEditMode)}
+                                    className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${isEditMode ? 'bg-green-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                                >
+                                    <LucideIcon name={isEditMode ? "check" : "edit-3"} size={16}/>
+                                    {isEditMode ? '編集完了' : '編集'}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-6">
+                            {/* 会社一覧 */}
+                            <div className="w-80 flex-shrink-0">
+                                <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                                    <div className="bg-orange-600 text-white p-4 font-bold flex items-center justify-between">
+                                        <span><LucideIcon name="list" size={18} className="inline mr-2"/>会社一覧</span>
+                                        {isEditMode && (
+                                            <button onClick={handleAddCompany} className="bg-white/20 hover:bg-white/30 p-1.5 rounded-lg">
+                                                <LucideIcon name="plus" size={18}/>
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="max-h-[calc(100vh-280px)] overflow-y-auto">
+                                        {companies.map(company => (
+                                            <div
+                                                key={company.id}
+                                                onClick={() => setSelectedCompanyId(company.id)}
+                                                className={`p-4 cursor-pointer border-b border-gray-100 flex items-center justify-between group transition-colors ${selectedCompanyId === company.id ? 'bg-orange-50 border-l-4 border-l-orange-600' : 'hover:bg-gray-50'}`}
+                                            >
+                                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                                    <LucideIcon name="building-2" size={18} className="text-gray-400 flex-shrink-0"/>
+                                                    {isEditMode ? (
+                                                        <input
+                                                            type="text"
+                                                            value={company.name}
+                                                            onChange={(e) => handleUpdateCompany(company.id, 'name', e.target.value)}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="flex-1 bg-transparent border-b border-gray-300 focus:border-orange-500 focus:outline-none font-medium"
+                                                        />
+                                                    ) : (
+                                                        <span className="font-medium text-gray-700 truncate">{company.name}</span>
+                                                    )}
+                                                </div>
+                                                {isEditMode && (
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteCompany(company.id); }}
+                                                        className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    >
+                                                        <LucideIcon name="trash-2" size={16}/>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                        {companies.length === 0 && (
+                                            <div className="p-8 text-center text-gray-400">
+                                                <LucideIcon name="inbox" size={32} className="mx-auto mb-2"/>
+                                                <p>会社がありません</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 会社詳細 */}
+                            <div className="flex-1">
+                                {selectedCompany ? (
+                                    <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                                        <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6">
+                                            <h2 className="text-xl font-bold flex items-center gap-2">
+                                                <LucideIcon name="building-2" size={24}/>
+                                                {selectedCompany.name}
+                                            </h2>
+                                        </div>
+                                        <div className="p-6 space-y-6">
+                                            {/* 資金計画書 */}
+                                            <div className="border rounded-lg p-4">
+                                                <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                                    <LucideIcon name="calculator" size={18} className="text-blue-600"/>
+                                                    資金計画書
+                                                </h3>
+                                                <div className="space-y-2 mb-3">
+                                                    {(selectedCompany.fundingPlanPdfs || []).map((pdf, idx) => (
+                                                        <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 p-3 rounded border border-gray-200">
+                                                            <div onClick={() => handleOpenPdf(pdf)} className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2">
+                                                                <LucideIcon name="file-text" size={16} className="mr-2 text-red-500 flex-shrink-0"/>
+                                                                <span className="truncate">{pdf.name}</span>
+                                                            </div>
+                                                            {isEditMode && (
+                                                                <button onClick={() => handlePdfDelete(selectedCompany.id, 'fundingPlanPdfs', idx)} className="text-gray-400 hover:text-red-500">
+                                                                    <LucideIcon name="x" size={16}/>
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                {isEditMode && (
+                                                    <label className="flex items-center justify-center w-full p-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 hover:border-blue-400 transition-colors text-sm text-gray-500">
+                                                        <LucideIcon name="upload" size={16} className="mr-2"/> 資金計画書PDFを追加
+                                                        <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files[0] && handlePdfUpload(selectedCompany.id, 'fundingPlanPdfs', e.target.files[0])} />
+                                                    </label>
+                                                )}
+                                                {!isEditMode && (selectedCompany.fundingPlanPdfs || []).length === 0 && (
+                                                    <p className="text-gray-400 text-sm">資金計画書が登録されていません</p>
+                                                )}
+                                            </div>
+
+                                            {/* プラン */}
+                                            <div className="border rounded-lg p-4">
+                                                <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                                    <LucideIcon name="layout" size={18} className="text-green-600"/>
+                                                    プラン
+                                                </h3>
+                                                <div className="space-y-2 mb-3">
+                                                    {(selectedCompany.planPdfs || []).map((pdf, idx) => (
+                                                        <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 p-3 rounded border border-gray-200">
+                                                            <div onClick={() => handleOpenPdf(pdf)} className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 mr-2">
+                                                                <LucideIcon name="file-text" size={16} className="mr-2 text-red-500 flex-shrink-0"/>
+                                                                <span className="truncate">{pdf.name}</span>
+                                                            </div>
+                                                            {isEditMode && (
+                                                                <button onClick={() => handlePdfDelete(selectedCompany.id, 'planPdfs', idx)} className="text-gray-400 hover:text-red-500">
+                                                                    <LucideIcon name="x" size={16}/>
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                {isEditMode && (
+                                                    <label className="flex items-center justify-center w-full p-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 hover:border-green-400 transition-colors text-sm text-gray-500">
+                                                        <LucideIcon name="upload" size={16} className="mr-2"/> プランPDFを追加
+                                                        <input type="file" accept=".pdf" className="hidden" onChange={(e) => e.target.files[0] && handlePdfUpload(selectedCompany.id, 'planPdfs', e.target.files[0])} />
+                                                    </label>
+                                                )}
+                                                {!isEditMode && (selectedCompany.planPdfs || []).length === 0 && (
+                                                    <p className="text-gray-400 text-sm">プランが登録されていません</p>
+                                                )}
+                                            </div>
+
+                                            {/* URL */}
+                                            <div className="border rounded-lg p-4">
+                                                <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                                    <LucideIcon name="link" size={18} className="text-blue-600"/>
+                                                    関連URL
+                                                </h3>
+                                                <div className="space-y-2 mb-3">
+                                                    {(selectedCompany.urls || []).map((urlItem) => {
+                                                        if (isEditMode) {
+                                                            return (
+                                                                <div key={urlItem._id} className="text-sm bg-gray-50 p-3 rounded border border-gray-200 space-y-2">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <LucideIcon name="link" size={14} className="text-blue-500 flex-shrink-0"/>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={urlItem.title || ''}
+                                                                            onChange={(e) => handleUpdateUrl(selectedCompany.id, urlItem._id, { title: e.target.value })}
+                                                                            placeholder="タイトルを入力..."
+                                                                            className="flex-1 p-1 border border-gray-300 rounded text-sm"
+                                                                        />
+                                                                        <button onClick={() => handleDeleteUrl(selectedCompany.id, urlItem._id)} className="text-gray-400 hover:text-red-500 flex-shrink-0">
+                                                                            <LucideIcon name="x" size={16}/>
+                                                                        </button>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 pl-5">
+                                                                        <input
+                                                                            type="url"
+                                                                            value={urlItem.url || ''}
+                                                                            onChange={(e) => handleUpdateUrl(selectedCompany.id, urlItem._id, { url: e.target.value })}
+                                                                            placeholder="URLを入力..."
+                                                                            className="flex-1 p-1 border border-gray-300 rounded text-sm text-blue-600"
+                                                                        />
+                                                                        {urlItem.url && (
+                                                                            <a href={urlItem.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 flex-shrink-0">
+                                                                                <LucideIcon name="external-link" size={14}/>
+                                                                            </a>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <div key={urlItem._id} className="flex items-center text-sm bg-gray-50 p-3 rounded border border-gray-200">
+                                                                <a href={urlItem.url} target="_blank" rel="noopener noreferrer" className="flex items-center cursor-pointer hover:text-blue-600 truncate flex-1 text-blue-500">
+                                                                    <LucideIcon name="link" size={16} className="mr-2 flex-shrink-0"/>
+                                                                    <span className="truncate">{urlItem.title || urlItem.url}</span>
+                                                                </a>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                {isEditMode && (
+                                                    <div className="space-y-2 bg-white p-3 border-2 border-dashed border-gray-300 rounded-lg">
+                                                        <div className="flex items-center gap-2">
+                                                            <LucideIcon name="link" size={14} className="text-gray-400 flex-shrink-0"/>
+                                                            <input
+                                                                type="text"
+                                                                placeholder="タイトル（任意）"
+                                                                className="flex-1 p-1.5 border rounded text-sm"
+                                                                id={`stockcon-url-title-${selectedCompany.id}`}
+                                                            />
+                                                        </div>
+                                                        <div className="flex items-center gap-2 pl-5">
+                                                            <input
+                                                                type="url"
+                                                                placeholder="https://..."
+                                                                className="flex-1 p-1.5 border rounded text-sm"
+                                                                id={`stockcon-url-${selectedCompany.id}`}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        const titleInput = document.getElementById(`stockcon-url-title-${selectedCompany.id}`);
+                                                                        handleAddUrl(selectedCompany.id, e.target.value, titleInput.value);
+                                                                        e.target.value = '';
+                                                                        titleInput.value = '';
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <button
+                                                                onClick={() => {
+                                                                    const urlInput = document.getElementById(`stockcon-url-${selectedCompany.id}`);
+                                                                    const titleInput = document.getElementById(`stockcon-url-title-${selectedCompany.id}`);
+                                                                    if (urlInput.value) {
+                                                                        handleAddUrl(selectedCompany.id, urlInput.value, titleInput.value);
+                                                                        urlInput.value = '';
+                                                                        titleInput.value = '';
+                                                                    }
+                                                                }}
+                                                                className="bg-blue-500 text-white p-1.5 rounded hover:bg-blue-600"
+                                                            >
+                                                                <LucideIcon name="plus" size={14}/>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {!isEditMode && (selectedCompany.urls || []).length === 0 && (
+                                                    <p className="text-gray-400 text-sm">URLが登録されていません</p>
+                                                )}
+                                            </div>
+
+                                            {/* その他情報 */}
+                                            <div className="border rounded-lg p-4">
+                                                <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                                    <LucideIcon name="info" size={18} className="text-purple-600"/>
+                                                    その他情報
+                                                </h3>
+                                                {isEditMode ? (
+                                                    <textarea
+                                                        value={selectedCompany.otherInfo || ''}
+                                                        onChange={(e) => handleUpdateCompany(selectedCompany.id, 'otherInfo', e.target.value)}
+                                                        placeholder="その他の情報を入力..."
+                                                        className="w-full p-3 border border-gray-300 rounded-lg text-sm min-h-[120px] focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                                                    />
+                                                ) : (
+                                                    <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                                                        {selectedCompany.otherInfo || <span className="text-gray-400">その他情報が登録されていません</span>}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="bg-white rounded-xl shadow-md p-12 text-center text-gray-400">
+                                        <LucideIcon name="mouse-pointer-click" size={48} className="mx-auto mb-4"/>
+                                        <p>会社を選択してください</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        //  5.6. Sales Data Dashboard (スプレッドシート連携)
+        // ==========================================
+
+        const SPREADSHEET_API_URL = 'https://script.google.com/macros/s/AKfycby4CK6SUSvXUSr6eiafcLiz9B66Je7AkGw4rPFtuaS-JtZY1NcP8N_rq4At-M-iIFSq/exec';
+
+        const SalesDataDashboard = () => {
+            const [data, setData] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [selectedTeam, setSelectedTeam] = useState(null);
+            const [selectedMonth, setSelectedMonth] = useState(null);
+            const [showPastMonths, setShowPastMonths] = useState(false);
+
+            const fetchData = async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                    const response = await fetch(SPREADSHEET_API_URL, {
+                        method: 'GET',
+                        redirect: 'follow',
+                        headers: {
+                            'Accept': 'application/json',
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const text = await response.text();
+                    let json;
+                    try {
+                        json = JSON.parse(text);
+                    } catch (parseError) {
+                        console.error('JSON parse error:', text.substring(0, 500));
+                        throw new Error('データの形式が正しくありません');
+                    }
+
+                    // GASからのエラーレスポンスをチェック
+                    if (json.error) {
+                        throw new Error(json.error);
+                    }
+
+                    // デバッグ: データ構造を確認
+                    console.log('=== Spreadsheet Data ===');
+                    console.log('Full data:', json);
+                    console.log('teamCustomers:', json.teamCustomers);
+                    console.log('teamCustomers type:', typeof json.teamCustomers);
+                    if (json.teamCustomers) {
+                        console.log('teamCustomers keys:', Object.keys(json.teamCustomers));
+                        // 各チームの中身を確認
+                        Object.keys(json.teamCustomers).forEach(teamName => {
+                            const teamData = json.teamCustomers[teamName];
+                            console.log(`Team "${teamName}":`, teamData);
+                            console.log(`  - type: ${typeof teamData}`);
+                            console.log(`  - isArray: ${Array.isArray(teamData)}`);
+                            if (teamData && typeof teamData === 'object') {
+                                console.log(`  - keys: ${Object.keys(teamData)}`);
+                            }
+                        });
+                    }
+
+                    setData(json);
+
+                    // 月リストを取得（データ構造によって異なる）
+                    if (json.teamCustomers) {
+                        const teamKeys = Object.keys(json.teamCustomers);
+                        console.log('Team keys:', teamKeys);
+
+                        // 最初のチームを選択
+                        if (teamKeys.length > 0 && !selectedTeam) {
+                            setSelectedTeam(teamKeys[0]);
+                        }
+
+                        // 月の情報を取得（もしデータに月情報が含まれていれば）
+                        if (json.months && json.months.length > 0 && !selectedMonth) {
+                            // 最新の月を選択
+                            setSelectedMonth(json.months[json.months.length - 1]);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Fetch error:', e);
+                    setError('データの取得に失敗しました: ' + e.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                fetchData();
+            }, []);
+
+            if (loading) {
+                return (
+                    <div className="flex items-center justify-center h-full">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                            <p className="text-gray-600">スプレッドシートからデータを取得中...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (error) {
+                return (
+                    <div className="flex items-center justify-center h-full">
+                        <div className="text-center max-w-md">
+                            <div className="text-red-600 mb-4">
+                                <LucideIcon name="alert-circle" size={48} className="mx-auto mb-2" />
+                                <p className="font-bold">データ取得エラー</p>
+                                <p className="text-sm mt-2">{error}</p>
+                            </div>
+                            <p className="text-xs text-gray-500 mb-4">
+                                ブラウザのコンソール(F12)で詳細を確認できます
+                            </p>
+                            <button onClick={fetchData} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                                再試行
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            const ranking = Array.isArray(data?.personalRanking) ? data.personalRanking : [];
+            const teams = Array.isArray(data?.teamForecast) ? data.teamForecast : [];
+            const teamProgress = Array.isArray(data?.teamProgress) ? data.teamProgress : [];
+
+            // teamCustomersがオブジェクトであることを確認
+            const rawTeamCustomers = data?.teamCustomers;
+            const teamCustomers = (rawTeamCustomers && typeof rawTeamCustomers === 'object' && !Array.isArray(rawTeamCustomers))
+                ? rawTeamCustomers
+                : {};
+            const teamNames = Object.keys(teamCustomers);
+
+            // 月リストを取得（データに含まれている場合、または現在月を使用）
+            const availableMonths = data?.months || [];
+            const currentMonth = new Date().getMonth() + 1; // 1-12
+            const displayMonth = selectedMonth || (availableMonths.length > 0 ? availableMonths[availableMonths.length - 1] : `${currentMonth}月`);
+
+            // 選択中のチームの顧客リストを取得（配列またはオブジェクトを配列に変換）
+            const selectedTeamData = selectedTeam ? teamCustomers[selectedTeam] : null;
+            let currentTeamCustomers = [];
+
+            // データ構造に応じて顧客リストを取得
+            if (selectedTeamData) {
+                if (Array.isArray(selectedTeamData)) {
+                    currentTeamCustomers = selectedTeamData;
+                } else if (typeof selectedTeamData === 'object') {
+                    // 月別データの場合 { "1月": [...], "2月": [...] }
+                    if (displayMonth && selectedTeamData[displayMonth]) {
+                        const monthData = selectedTeamData[displayMonth];
+                        currentTeamCustomers = Array.isArray(monthData) ? monthData : Object.values(monthData);
+                    } else {
+                        // 月別ではない場合、全データを配列に変換
+                        currentTeamCustomers = Object.values(selectedTeamData);
+                    }
+                }
+            }
+
+            // デバッグログ（レンダリング時）
+            console.log('Rendering - teamNames:', teamNames, 'selectedTeam:', selectedTeam, 'availableMonths:', availableMonths, 'displayMonth:', displayMonth, 'currentTeamCustomers count:', currentTeamCustomers.length);
+
+            const getStatusColor = (status) => {
+                if (!status) return 'bg-gray-100 text-gray-600';
+                if (status.includes('契約') || status.includes('成約')) return 'bg-green-100 text-green-700';
+                if (status.includes('内定') || status.includes('8割') || status.includes('確度高')) return 'bg-blue-100 text-blue-700';
+                if (status.includes('商談') || status.includes('進行')) return 'bg-yellow-100 text-yellow-700';
+                if (status.includes('失注') || status.includes('中止')) return 'bg-red-100 text-red-700';
+                return 'bg-gray-100 text-gray-600';
+            };
+
+            return (
+                <div className="bg-gray-100 min-h-full font-sans p-6 overflow-y-auto">
+                    <div className="max-w-7xl mx-auto">
+                        <div className="flex items-center justify-between mb-6">
+                            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                <LucideIcon name="bar-chart-2" className="text-blue-600" size={28}/> 営業データダッシュボード
+                            </h1>
+                            <div className="flex items-center gap-4">
+                                <span className="text-sm text-gray-500">最終更新: {data?.lastUpdated || '-'}</span>
+                                <button
+                                    onClick={fetchData}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium flex items-center gap-2 hover:bg-blue-700 transition-colors"
+                                >
+                                    <LucideIcon name="refresh-cw" size={16}/> 更新
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                            {/* 個人契約ランキング */}
+                            <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                                <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 font-bold flex items-center gap-2">
+                                    <LucideIcon name="trophy" size={20}/> 個人契約ランキング
+                                </div>
+                                <div className="p-4">
+                                    {(() => {
+                                        const validRanking = ranking.filter(p => p.name !== '合計' && p.name);
+                                        if (validRanking.length === 0) {
+                                            return <p className="text-center text-gray-400 py-8">データがありません</p>;
+                                        }
+
+                                        // スコアでソートして同率を考慮したランキングを作成
+                                        const sorted = [...validRanking].sort((a, b) => (b.score || 0) - (a.score || 0));
+                                        const scores = [...new Set(sorted.map(p => p.score || 0))];
+
+                                        // 同率順位を考慮した順位計算
+                                        const first = sorted.filter(p => (p.score || 0) === scores[0]);
+                                        const firstRank = 1;
+
+                                        // 2位の順位 = 1 + 1位の人数
+                                        const secondRank = firstRank + first.length;
+                                        const second = scores[1] !== undefined ? sorted.filter(p => (p.score || 0) === scores[1]) : [];
+
+                                        // 3位の順位 = 2位の順位 + 2位の人数
+                                        const thirdRank = secondRank + second.length;
+                                        const third = scores[2] !== undefined ? sorted.filter(p => (p.score || 0) === scores[2]) : [];
+
+                                        // 4位以降
+                                        const restStartRank = thirdRank + third.length;
+                                        const rest = sorted.filter(p => {
+                                            const score = p.score || 0;
+                                            return score !== scores[0] && score !== scores[1] && score !== scores[2];
+                                        });
+
+                                        // 各人の順位を計算する関数
+                                        const getRank = (score) => {
+                                            let rank = 1;
+                                            for (let i = 0; i < scores.length; i++) {
+                                                if (scores[i] === score) return rank;
+                                                rank += sorted.filter(p => (p.score || 0) === scores[i]).length;
+                                            }
+                                            return rank;
+                                        };
+
+                                        return (
+                                            <>
+                                                {/* トライアングル形式のトップ3 */}
+                                                <div className="mb-6">
+                                                    {/* 1位 - 頂点 */}
+                                                    <div className="flex justify-center mb-4">
+                                                        <div className="bg-gradient-to-b from-yellow-300 via-yellow-400 to-yellow-500 rounded-xl p-4 shadow-lg border-2 border-yellow-600 min-w-[160px] text-center">
+                                                            <div className="text-4xl mb-2">🥇</div>
+                                                            <div className="text-3xl font-black text-yellow-800">{scores[0] || 0}</div>
+                                                            <div className="text-xs text-yellow-700 mb-2">棟</div>
+                                                            <div className="border-t border-yellow-600 pt-2">
+                                                                {first.map((person, idx) => (
+                                                                    <div key={idx} className="text-lg font-bold text-yellow-900">{person.name}</div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* 2位・3位 - 下段 */}
+                                                    {(second.length > 0 || third.length > 0) && (
+                                                        <div className="flex justify-center gap-4 flex-wrap">
+                                                            {/* 2位 */}
+                                                            {second.length > 0 && (
+                                                                <div className="bg-gradient-to-b from-gray-200 via-gray-300 to-gray-400 rounded-xl p-3 shadow-md border-2 border-gray-500 min-w-[140px] text-center">
+                                                                    <div className="text-3xl mb-1">🥈</div>
+                                                                    <div className="text-xs text-gray-500 mb-1">{secondRank}位</div>
+                                                                    <div className="text-2xl font-black text-gray-600">{scores[1] || 0}</div>
+                                                                    <div className="text-xs text-gray-500 mb-2">棟</div>
+                                                                    <div className="border-t border-gray-500 pt-2">
+                                                                        {second.map((person, idx) => (
+                                                                            <div key={idx} className="text-base font-bold text-gray-700">{person.name}</div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* 3位 */}
+                                                            {third.length > 0 && (
+                                                                <div className="bg-gradient-to-b from-orange-200 via-orange-300 to-orange-400 rounded-xl p-3 shadow border-2 border-orange-500 min-w-[140px] text-center">
+                                                                    <div className="text-3xl mb-1">🥉</div>
+                                                                    <div className="text-xs text-orange-600 mb-1">{thirdRank}位</div>
+                                                                    <div className="text-2xl font-black text-orange-700">{scores[2] || 0}</div>
+                                                                    <div className="text-xs text-orange-600 mb-2">棟</div>
+                                                                    <div className="border-t border-orange-500 pt-2">
+                                                                        {third.map((person, idx) => (
+                                                                            <div key={idx} className="text-base font-bold text-orange-800">{person.name}</div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* 4位以降のテーブル */}
+                                                {rest.length > 0 && (
+                                                    <table className="w-full text-sm">
+                                                        <thead className="bg-gray-50">
+                                                            <tr>
+                                                                <th className="text-left p-2 font-semibold">順位</th>
+                                                                <th className="text-left p-2 font-semibold">氏名</th>
+                                                                <th className="text-center p-2 font-semibold bg-blue-50">スコア</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {rest.map((person, idx) => {
+                                                                const rank = getRank(person.score || 0);
+                                                                return (
+                                                                    <tr key={idx} className="border-b hover:bg-gray-50">
+                                                                        <td className="p-2 text-gray-600">{rank}位</td>
+                                                                        <td className="p-2 font-medium">{person.name}</td>
+                                                                        <td className="text-center p-2 font-bold bg-blue-50">{person.score || 0}</td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                )}
+                                            </>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+
+                            {/* チーム別年間進捗 */}
+                            <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                                <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-4 font-bold flex items-center gap-2">
+                                    <LucideIcon name="trending-up" size={20}/> 年間契約進捗
+                                </div>
+                                <div className="p-4">
+                                    {teamProgress.length > 0 ? (
+                                        <div className="space-y-3">
+                                            {/* Gハウス全体を最初に表示 */}
+                                            {(() => {
+                                                const gHouse = teamProgress.find(t => t.teamName === 'Gハウス全体');
+                                                if (!gHouse) return null;
+                                                const progressRate = gHouse.progressRate || 0;
+                                                const remaining = Math.max(0, gHouse.totalTarget - gHouse.totalActual);
+                                                // 残り月数を計算（実績0の月をカウント、前期繰越は除く）
+                                                const monthlyData = gHouse.monthlyData || [];
+                                                const remainingMonths = monthlyData.slice(1).filter(m => (m.actual || 0) === 0).length;
+                                                const avgNeeded = remainingMonths > 0 ? Math.ceil(remaining / remainingMonths) : 0;
+                                                return (
+                                                    <div className="p-4 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg border-4 border-blue-700 mb-4">
+                                                        <div className="flex justify-between items-center mb-3">
+                                                            <span className="font-bold text-xl flex items-center gap-2">
+                                                                <LucideIcon name="building-2" size={24}/> {gHouse.teamName}
+                                                            </span>
+                                                            <div className="text-right">
+                                                                <div className="text-3xl font-black">{gHouse.totalActual} <span className="text-lg font-normal">/ {gHouse.totalTarget}棟</span></div>
+                                                                <div className={`text-lg font-bold ${progressRate >= 100 ? 'text-green-300' : 'text-yellow-300'}`}>
+                                                                    達成率 {progressRate}%
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="w-full bg-blue-300 rounded-full h-5 overflow-hidden mb-3">
+                                                            <div
+                                                                className={`h-5 rounded-full transition-all duration-500 ${progressRate >= 100 ? 'bg-green-400' : 'bg-yellow-400'}`}
+                                                                style={{ width: `${Math.min(progressRate, 100)}%` }}
+                                                            ></div>
+                                                        </div>
+                                                        {remaining > 0 && remainingMonths > 0 && (
+                                                            <div className="bg-blue-700 rounded-lg p-3 text-center">
+                                                                <span className="text-blue-200">目標達成まであと </span>
+                                                                <span className="text-2xl font-black text-white">{remaining}棟</span>
+                                                                <span className="text-blue-200 mx-2">→</span>
+                                                                <span className="text-blue-200">残り{remainingMonths}ヶ月で月平均 </span>
+                                                                <span className="text-2xl font-black text-yellow-300">{avgNeeded}棟/月</span>
+                                                                <span className="text-blue-200"> 必要</span>
+                                                            </div>
+                                                        )}
+                                                        {remaining <= 0 && (
+                                                            <div className="bg-green-500 rounded-lg p-3 text-center">
+                                                                <span className="text-2xl font-black">🎉 目標達成！</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
+
+                                            {/* 各チーム */}
+                                            {teamProgress.filter(t => t.teamName !== 'Gハウス全体').map((team, idx) => {
+                                                const progressRate = team.progressRate || 0;
+                                                const remaining = Math.max(0, team.totalTarget - team.totalActual);
+                                                const monthlyData = team.monthlyData || [];
+                                                const remainingMonths = monthlyData.slice(1).filter(m => (m.actual || 0) === 0).length;
+                                                const avgNeeded = remainingMonths > 0 ? Math.ceil(remaining / remainingMonths) : 0;
+                                                return (
+                                                    <div key={idx} className="p-3 rounded-lg bg-gray-50 border border-gray-200">
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <span className="font-bold text-gray-700">{team.teamName}</span>
+                                                            <span className="text-sm">
+                                                                <span className="font-bold text-green-600">{team.totalActual}</span>
+                                                                <span className="text-gray-400"> / {team.totalTarget}棟</span>
+                                                                <span className={`ml-2 font-bold ${progressRate >= 100 ? 'text-green-600' : progressRate >= 50 ? 'text-blue-600' : 'text-orange-500'}`}>
+                                                                    ({progressRate}%)
+                                                                </span>
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                                                            <div
+                                                                className={`h-3 rounded-full transition-all duration-500 ${progressRate >= 100 ? 'bg-green-500' : progressRate >= 70 ? 'bg-blue-500' : progressRate >= 40 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                                                                style={{ width: `${Math.min(progressRate, 100)}%` }}
+                                                            ></div>
+                                                        </div>
+                                                        {remaining > 0 && remainingMonths > 0 && (
+                                                            <div className="mt-2 text-xs text-gray-500 flex justify-end items-center gap-1">
+                                                                <span>あと{remaining}棟 →</span>
+                                                                <span className="font-bold text-orange-600">月平均{avgNeeded}棟必要</span>
+                                                                <span className="text-gray-400">(残{remainingMonths}ヶ月)</span>
+                                                            </div>
+                                                        )}
+                                                        {remaining <= 0 && (
+                                                            <div className="mt-2 text-xs text-green-600 font-bold text-right">✓ 目標達成</div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <p className="text-center text-gray-400 py-8">データがありません</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 月別詳細テーブル */}
+                        {teamProgress.length > 0 && (
+                            <div className="bg-white rounded-xl shadow-md overflow-hidden mb-6">
+                                <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-4 font-bold flex items-center gap-2">
+                                    <LucideIcon name="calendar" size={20}/> 月別目標・実績一覧
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="text-left p-3 font-semibold sticky left-0 bg-gray-50 min-w-[120px]">チーム</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">12月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">1月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px] bg-yellow-50">2月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">3月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">4月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">5月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">6月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">7月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">8月</th>
+                                                <th className="text-center p-2 font-semibold min-w-[50px]">9月</th>
+                                                <th className="text-center p-2 font-semibold bg-blue-50 min-w-[70px]">計</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {/* Gハウス全体を最初に表示 */}
+                                            {[...teamProgress].sort((a, b) => {
+                                                if (a.teamName === 'Gハウス全体') return -1;
+                                                if (b.teamName === 'Gハウス全体') return 1;
+                                                return 0;
+                                            }).map((team, idx) => {
+                                                const isGHouse = team.teamName === 'Gハウス全体';
+                                                const monthlyData = team.monthlyData || [];
+                                                return (
+                                                    <React.Fragment key={idx}>
+                                                        {/* 目標行 */}
+                                                        <tr className={`border-b ${isGHouse ? 'bg-blue-100 border-blue-300' : ''}`}>
+                                                            <td className={`p-2 font-medium sticky left-0 ${isGHouse ? 'bg-blue-100 text-blue-700 font-bold' : 'bg-white'}`}>
+                                                                {team.teamName}
+                                                                <span className={`text-xs ml-1 ${isGHouse ? 'text-blue-500' : 'text-gray-500'}`}>目標</span>
+                                                            </td>
+                                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((monthIdx) => {
+                                                                const monthData = monthlyData[monthIdx] || {};
+                                                                const isFeb = monthIdx === 2;
+                                                                const targetValue = monthData.target;
+                                                                const displayTarget = targetValue !== undefined && targetValue !== null && targetValue !== '' ? targetValue : '-';
+                                                                return (
+                                                                    <td key={monthIdx} className={`text-center p-2 ${isGHouse ? 'text-blue-700 font-semibold' : 'text-gray-600'} ${isFeb ? 'bg-yellow-50' : ''}`}>
+                                                                        {displayTarget}
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                            <td className={`text-center p-2 font-bold ${isGHouse ? 'bg-blue-200 text-blue-800' : 'bg-blue-50'}`}>{team.totalTarget}</td>
+                                                        </tr>
+                                                        {/* 実績行 */}
+                                                        <tr className={`border-b ${isGHouse ? 'bg-blue-50 border-blue-300 border-b-4' : 'bg-gray-50'}`}>
+                                                            <td className={`p-2 font-medium sticky left-0 ${isGHouse ? 'bg-blue-50 text-blue-700' : 'bg-gray-50'}`}>
+                                                                <span className={`text-xs ml-1 ${isGHouse ? 'text-green-600 font-bold' : 'text-green-600'}`}>実績</span>
+                                                            </td>
+                                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((monthIdx) => {
+                                                                const monthData = monthlyData[monthIdx] || {};
+                                                                const isFeb = monthIdx === 2;
+                                                                const actualValue = monthData.actual;
+                                                                const actual = actualValue !== undefined && actualValue !== null && actualValue !== '' ? actualValue : null;
+                                                                const target = monthData.target || 0;
+                                                                const achieved = actual !== null && actual >= target && target > 0;
+                                                                const displayActual = actual !== null ? actual : '-';
+                                                                return (
+                                                                    <td key={monthIdx} className={`text-center p-2 font-bold ${isFeb ? 'bg-yellow-50' : ''} ${achieved ? 'text-green-600' : actual !== null && actual > 0 ? 'text-blue-600' : actual === 0 ? 'text-gray-600' : 'text-gray-400'}`}>
+                                                                        {displayActual}
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                            <td className={`text-center p-2 font-bold ${team.totalActual >= team.totalTarget ? 'text-green-600 bg-green-100' : isGHouse ? 'text-blue-700 bg-blue-200' : 'text-blue-600 bg-blue-100'}`}>
+                                                                {team.totalActual}
+                                                            </td>
+                                                        </tr>
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* チーム別顧客情報 */}
+                        {teamNames.length > 0 && (
+                            <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                                <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-4 font-bold flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <LucideIcon name="clipboard-list" size={20}/> チーム別顧客情報
+                                    </div>
+                                    {/* 月選択 */}
+                                    {availableMonths.length > 0 && (
+                                        <div className="flex items-center gap-2">
+                                            <select
+                                                value={displayMonth}
+                                                onChange={(e) => setSelectedMonth(e.target.value)}
+                                                className="px-3 py-1 rounded text-sm text-gray-700 bg-white border-0 focus:ring-2 focus:ring-purple-300"
+                                            >
+                                                {availableMonths.map(month => (
+                                                    <option key={month} value={month}>{month}</option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                onClick={() => setShowPastMonths(!showPastMonths)}
+                                                className="text-xs text-purple-200 hover:text-white underline"
+                                            >
+                                                {showPastMonths ? '閉じる' : '過去月を見る'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* チームタブ */}
+                                <div className="flex border-b overflow-x-auto">
+                                    {teamNames.map(teamName => (
+                                        <button
+                                            key={teamName}
+                                            onClick={() => setSelectedTeam(teamName)}
+                                            className={`px-4 py-3 font-medium text-sm whitespace-nowrap transition-colors ${
+                                                selectedTeam === teamName
+                                                    ? 'bg-purple-50 text-purple-700 border-b-2 border-purple-600'
+                                                    : 'text-gray-600 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            {teamName}
+                                            <span className="ml-2 px-2 py-0.5 bg-gray-200 rounded-full text-xs">
+                                                {Array.isArray(teamCustomers[teamName])
+                                                    ? teamCustomers[teamName].length
+                                                    : (teamCustomers[teamName] && typeof teamCustomers[teamName] === 'object')
+                                                        ? Object.keys(teamCustomers[teamName]).length
+                                                        : 0}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* 顧客テーブル */}
+                                <div className="overflow-x-auto max-h-[500px]">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-gray-50 sticky top-0">
+                                            <tr>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">担当</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">お客様氏名</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">土地有無</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">ステータス</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">連絡/限定会員</th>
+                                                <th className="text-center p-2 font-semibold whitespace-nowrap text-xs">打合せ回数</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">最終連絡日</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">次回アポ</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">現状</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">問題・懸念点</th>
+                                                <th className="text-left p-2 font-semibold whitespace-nowrap text-xs">次回アクション</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {(Array.isArray(currentTeamCustomers) ? currentTeamCustomers : []).map((customer, idx) => (
+                                                <tr key={idx} className="border-b hover:bg-gray-50">
+                                                    <td className="p-2 whitespace-nowrap text-xs">{customer?.['担当'] || '-'}</td>
+                                                    <td className="p-2 font-medium text-xs">{customer?.['お客様氏名'] || '-'}</td>
+                                                    <td className="p-2 whitespace-nowrap text-xs">{customer?.['土地有無'] || '-'}</td>
+                                                    <td className="p-2 text-xs">
+                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(customer?.['ステータス'])}`}>
+                                                            {customer?.['ステータス'] || '-'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-2 whitespace-nowrap text-xs">{customer?.['連絡/限定会員'] || customer?.['連絡'] || '-'}</td>
+                                                    <td className="text-center p-2 text-xs">{customer?.['打合せ回数'] || 0}</td>
+                                                    <td className="p-2 whitespace-nowrap text-xs text-gray-600">{customer?.['最終連絡日'] || '-'}</td>
+                                                    <td className="p-2 whitespace-nowrap text-xs text-blue-600">{customer?.['次回アポ'] || '-'}</td>
+                                                    <td className="p-2 text-xs max-w-[150px] truncate" title={customer?.['現状']}>{customer?.['現状'] || '-'}</td>
+                                                    <td className="p-2 text-xs max-w-[150px] truncate" title={customer?.['問題・懸念点']}>{customer?.['問題・懸念点'] || '-'}</td>
+                                                    <td className="p-2 text-xs max-w-[150px] truncate" title={customer?.['次回アクション']}>{customer?.['次回アクション'] || '-'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                    {(!Array.isArray(currentTeamCustomers) || currentTeamCustomers.length === 0) && (
+                                        <p className="text-center text-gray-400 py-8">顧客データがありません</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* データソース情報 */}
+                        <div className="mt-6 text-center text-sm text-gray-400">
+                            最終更新: {data?.lastUpdated || '-'}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        //  5.5. Schedule App (担当営業のスケジュール)
+        // ==========================================
+
+        // Google Calendar API Key (公開カレンダー用)
+        const GOOGLE_CALENDAR_API_KEY = 'AIzaSyCFFr4xABScnzb-jz9OpAGGPRVhOd9j5is';
+
+        // デフォルトチームリスト
+        const DEFAULT_TEAMS = ['全体', '京都', '奈良', '本社', '豊中'];
+
+        const ScheduleApp = () => {
+            const [scheduleData, setScheduleData, isLoading] = useFirebaseState('scheduleData', {
+                members: [],
+                teams: DEFAULT_TEAMS
+            });
+            const [selectedMemberId, setSelectedMemberId] = useState(null);
+            const [isEditMode, setIsEditMode] = useState(false);
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [newMemberName, setNewMemberName] = useState('');
+            const [newCalendarUrl, setNewCalendarUrl] = useState('');
+            const [newMemberTeam, setNewMemberTeam] = useState('');
+            const [activeTab, setActiveTab] = useState('availability'); // 'availability' or 'calendar'
+            const [calendarViewMode, setCalendarViewMode] = useState('week'); // 'day', 'week', 'month'
+            const [calendarDate, setCalendarDate] = useState(new Date());
+            const [eventsData, setEventsData] = useState({});
+            const [loadingEvents, setLoadingEvents] = useState(false);
+            const [selectedWeekOffset, setSelectedWeekOffset] = useState(0);
+            const [selectedTeamFilter, setSelectedTeamFilter] = useState('全体');
+            const [expandedMemberId, setExpandedMemberId] = useState(null);
+            const [showTeamModal, setShowTeamModal] = useState(false);
+            const [newTeamName, setNewTeamName] = useState('');
+            const [editingTeamIndex, setEditingTeamIndex] = useState(null);
+            const [editingTeamName, setEditingTeamName] = useState('');
+
+            // チームリスト（データになければデフォルトを使用）
+            const teams = scheduleData.teams?.length > 0 ? scheduleData.teams : DEFAULT_TEAMS;
+
+            // チーム管理関数
+            const handleAddTeam = () => {
+                if (!newTeamName.trim() || teams.includes(newTeamName.trim())) return;
+                const newTeams = [...teams, newTeamName.trim()];
+                setScheduleData({ ...scheduleData, teams: newTeams });
+                setNewTeamName('');
+            };
+
+            const handleUpdateTeam = (index) => {
+                if (!editingTeamName.trim() || index === 0) return; // 「全体」は編集不可
+                const oldName = teams[index];
+                const newTeams = [...teams];
+                newTeams[index] = editingTeamName.trim();
+                // メンバーのチーム名も更新
+                const updatedMembers = (scheduleData.members || []).map(m =>
+                    m.team === oldName ? { ...m, team: editingTeamName.trim() } : m
+                );
+                setScheduleData({ ...scheduleData, teams: newTeams, members: updatedMembers });
+                setEditingTeamIndex(null);
+                setEditingTeamName('');
+            };
+
+            const handleDeleteTeam = (index) => {
+                if (index === 0) return; // 「全体」は削除不可
+                const teamToDelete = teams[index];
+                if (!confirm(`「${teamToDelete}」を削除しますか？\nこのチームに所属するメンバーのチーム設定は解除されます。`)) return;
+                const newTeams = teams.filter((_, i) => i !== index);
+                // メンバーのチーム名をクリア
+                const updatedMembers = (scheduleData.members || []).map(m =>
+                    m.team === teamToDelete ? { ...m, team: '' } : m
+                );
+                setScheduleData({ ...scheduleData, teams: newTeams, members: updatedMembers });
+                if (selectedTeamFilter === teamToDelete) {
+                    setSelectedTeamFilter('全体');
+                }
+            };
+
+            // フィルタリングされたメンバー（あいうえお順でソート）
+            const filteredMembers = useMemo(() => {
+                const members = selectedTeamFilter === '全体'
+                    ? (scheduleData.members || [])
+                    : (scheduleData.members || []).filter(m => m.team === selectedTeamFilter);
+                return [...members].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ja'));
+            }, [scheduleData.members, selectedTeamFilter]);
+
+            const selectedMember = scheduleData.members?.find(m => m.id === selectedMemberId);
+
+            // 3週間分の土日を取得
+            const getWeekendDates = (weekOffset = 0) => {
+                const today = new Date();
+                const currentDay = today.getDay();
+
+                // 今週の土曜日を計算
+                const daysUntilSaturday = (6 - currentDay + 7) % 7 || 7;
+                const saturday1 = new Date(today);
+                saturday1.setDate(today.getDate() + daysUntilSaturday + (weekOffset * 7));
+                saturday1.setHours(0, 0, 0, 0);
+
+                const sunday1 = new Date(saturday1);
+                sunday1.setDate(saturday1.getDate() + 1);
+
+                // 2週目の土日
+                const saturday2 = new Date(saturday1);
+                saturday2.setDate(saturday1.getDate() + 7);
+
+                const sunday2 = new Date(saturday2);
+                sunday2.setDate(saturday2.getDate() + 1);
+
+                // 3週目の土日
+                const saturday3 = new Date(saturday2);
+                saturday3.setDate(saturday2.getDate() + 7);
+
+                const sunday3 = new Date(saturday3);
+                sunday3.setDate(saturday3.getDate() + 1);
+
+                return { saturday1, sunday1, saturday2, sunday2, saturday3, sunday3 };
+            };
+
+            const { saturday1, sunday1, saturday2, sunday2, saturday3, sunday3 } = getWeekendDates(selectedWeekOffset);
+
+            // カレンダーIDを抽出
+            const extractCalendarId = (calendarUrl) => {
+                if (!calendarUrl) return null;
+                if (calendarUrl.includes('@')) {
+                    // メールアドレス形式の場合
+                    const match = calendarUrl.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+)/);
+                    return match ? match[1] : calendarUrl;
+                }
+                // 埋め込みURLからsrcパラメータを抽出
+                const srcMatch = calendarUrl.match(/src=([^&]+)/);
+                if (srcMatch) {
+                    return decodeURIComponent(srcMatch[1]);
+                }
+                return calendarUrl;
+            };
+
+            // Google Calendar APIから予定を取得
+            const [apiError, setApiError] = useState(null);
+
+            const fetchCalendarEvents = async (calendarId, startDate, endDate) => {
+                try {
+                    const timeMin = new Date(startDate);
+                    timeMin.setHours(0, 0, 0, 0);
+                    const timeMax = new Date(endDate);
+                    timeMax.setHours(23, 59, 59, 999);
+
+                    const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?` +
+                        `key=${GOOGLE_CALENDAR_API_KEY}&` +
+                        `timeMin=${timeMin.toISOString()}&` +
+                        `timeMax=${timeMax.toISOString()}&` +
+                        `singleEvents=true&` +
+                        `orderBy=startTime`;
+
+                    console.log('Fetching calendar:', calendarId);
+                    console.log('API URL:', url);
+
+                    const response = await fetch(url);
+                    const data = await response.json();
+
+                    console.log('API Response status:', response.status);
+                    console.log('API Response data:', data);
+
+                    if (!response.ok) {
+                        console.error('Calendar API error:', response.status, data);
+                        if (data.error) {
+                            setApiError(`API Error: ${data.error.message}`);
+                        }
+                        return [];
+                    }
+
+                    console.log('Found events:', data.items?.length || 0);
+                    // 各イベントの詳細をログ出力（デバッグ用）
+                    data.items?.forEach((event, i) => {
+                        console.log(`Event ${i}:`, {
+                            summary: event.summary,
+                            organizer: event.organizer,
+                            creator: event.creator,
+                            start: event.start,
+                            end: event.end
+                        });
+                    });
+                    return data.items || [];
+                } catch (error) {
+                    console.error('Failed to fetch calendar events:', error);
+                    setApiError(`Fetch Error: ${error.message}`);
+                    return [];
+                }
+            };
+
+            // 全メンバーの予定を取得（2ヶ月分）
+            const fetchAllMembersEvents = async () => {
+                if (!scheduleData.members?.length) return;
+
+                setLoadingEvents(true);
+                const newEventsData = {};
+
+                // 今日から2ヶ月先までを取得範囲に設定
+                const startDate = new Date();
+                startDate.setHours(0, 0, 0, 0);
+                const endDate = new Date();
+                endDate.setMonth(endDate.getMonth() + 2);
+                endDate.setHours(23, 59, 59, 999);
+
+                for (const member of scheduleData.members) {
+                    if (member.calendarUrl) {
+                        const calendarId = extractCalendarId(member.calendarUrl);
+                        if (calendarId) {
+                            const events = await fetchCalendarEvents(calendarId, startDate, endDate);
+                            newEventsData[member.id] = events;
+                        }
+                    }
+                }
+
+                setEventsData(newEventsData);
+                setLoadingEvents(false);
+            };
+
+            // 予定取得
+            useEffect(() => {
+                if (!isLoading && scheduleData.members?.length > 0) {
+                    fetchAllMembersEvents();
+                }
+            }, [isLoading, scheduleData.members, selectedWeekOffset]);
+
+            // 最初のメンバーを自動選択
+            useEffect(() => {
+                if (!isLoading && scheduleData.members?.length > 0 && !selectedMemberId) {
+                    setSelectedMemberId(scheduleData.members[0].id);
+                }
+            }, [isLoading, scheduleData.members, selectedMemberId]);
+
+            // 除外するキーワード（これらを含む予定は「空き」として扱う）
+            const IGNORE_KEYWORDS = ['車'];
+            // 必ず忙しいとして扱うキーワード（これらを含む予定は除外しない）
+            const BUSY_KEYWORDS = ['休み', '休暇', '有給'];
+
+            // 時間帯の空き状況を計算（9:00-19:00を1時間単位で）
+            const calculateAvailability = (memberId, date) => {
+                const events = eventsData[memberId] || [];
+                const slots = [];
+
+                for (let hour = 9; hour < 19; hour++) {
+                    const slotStart = new Date(date);
+                    slotStart.setHours(hour, 0, 0, 0);
+                    const slotEnd = new Date(date);
+                    slotEnd.setHours(hour + 1, 0, 0, 0);
+
+                    // この時間帯の予定を取得
+                    const busyEvents = [];
+                    events.forEach(event => {
+                        const eventTitle = event.summary || '(タイトルなし)';
+                        const calendarName = event.organizer?.displayName || '';
+
+                        // 「車」を含むカレンダーまたは予定タイトルは除外（空きとして扱う）
+                        // ただし「休み」等を含む予定は必ず忙しいとして扱う
+                        const isBusyKeyword = BUSY_KEYWORDS.some(keyword => eventTitle.includes(keyword));
+                        if (!isBusyKeyword && IGNORE_KEYWORDS.some(keyword =>
+                            calendarName.includes(keyword) || eventTitle.includes(keyword)
+                        )) {
+                            return; // この予定は無視
+                        }
+
+                        const eventStart = new Date(event.start.dateTime || event.start.date);
+                        const eventEnd = new Date(event.end.dateTime || event.end.date);
+
+                        // 終日イベントの場合
+                        if (event.start.date && !event.start.dateTime) {
+                            const eventDate = new Date(event.start.date);
+                            if (eventDate.toDateString() === date.toDateString()) {
+                                busyEvents.push({ title: eventTitle, isAllDay: true });
+                            }
+                            return;
+                        }
+
+                        // 時間指定イベントの場合、重なりをチェック
+                        if (eventStart < slotEnd && eventEnd > slotStart) {
+                            const startHour = eventStart.getHours();
+                            const startMin = eventStart.getMinutes();
+                            const endHour = eventEnd.getHours();
+                            const endMin = eventEnd.getMinutes();
+                            const timeStr = `${startHour}:${startMin.toString().padStart(2, '0')}-${endHour}:${endMin.toString().padStart(2, '0')}`;
+                            busyEvents.push({ title: eventTitle, time: timeStr, isAllDay: false });
+                        }
+                    });
+
+                    const isBusy = busyEvents.length > 0;
+                    slots.push({ hour, isBusy, events: busyEvents });
+                }
+
+                return slots;
+            };
+
+            // 空いている人を時間帯ごとに集計
+            const getAvailableMembersBySlot = (date) => {
+                const slotData = {};
+
+                for (let hour = 9; hour < 19; hour++) {
+                    slotData[hour] = [];
+
+                    scheduleData.members?.forEach(member => {
+                        if (!member.calendarUrl) return;
+
+                        const availability = calculateAvailability(member.id, date);
+                        const slot = availability.find(s => s.hour === hour);
+
+                        if (slot && !slot.isBusy) {
+                            slotData[hour].push(member);
+                        }
+                    });
+                }
+
+                return slotData;
+            };
+
+            const handleAddMember = () => {
+                if (!newMemberName.trim()) return;
+                const newId = 'member_' + Date.now();
+                const newMember = {
+                    id: newId,
+                    name: newMemberName.trim(),
+                    calendarUrl: newCalendarUrl.trim(),
+                    team: newMemberTeam || teams[1] || ''
+                };
+                setScheduleData({
+                    ...scheduleData,
+                    members: [...(scheduleData.members || []), newMember]
+                });
+                setNewMemberName('');
+                setNewCalendarUrl('');
+                setNewMemberTeam('');
+                setShowAddModal(false);
+                setSelectedMemberId(newId);
+            };
+
+            const handleUpdateMember = (memberId, updates) => {
+                setScheduleData({
+                    ...scheduleData,
+                    members: scheduleData.members.map(m =>
+                        m.id === memberId ? { ...m, ...updates } : m
+                    )
+                });
+            };
+
+            const handleDeleteMember = (memberId) => {
+                if (!confirm('このメンバーを削除してもよろしいですか？')) return;
+                const newMembers = scheduleData.members.filter(m => m.id !== memberId);
+                setScheduleData({ ...scheduleData, members: newMembers });
+                if (selectedMemberId === memberId) {
+                    setSelectedMemberId(newMembers[0]?.id || null);
+                }
+            };
+
+            // Googleカレンダーの埋め込みURLを生成
+            const getEmbedUrl = (calendarUrl) => {
+                if (!calendarUrl) return null;
+                if (calendarUrl.includes('calendar.google.com/calendar/embed')) {
+                    return calendarUrl;
+                }
+                if (calendarUrl.includes('@')) {
+                    return `https://calendar.google.com/calendar/embed?src=${encodeURIComponent(calendarUrl)}&ctz=Asia/Tokyo`;
+                }
+                return calendarUrl;
+            };
+
+            const formatDate = (date) => {
+                return `${date.getMonth() + 1}/${date.getDate()}(${['日', '月', '火', '水', '木', '金', '土'][date.getDay()]})`;
+            };
+
+            const formatHour = (hour) => `${hour}:00`;
+
+            if (isLoading) {
+                return (
+                    <div className="h-full flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mx-auto mb-4"></div>
+                            <p className="text-gray-600">読み込み中...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            const saturday1Slots = getAvailableMembersBySlot(saturday1);
+            const sunday1Slots = getAvailableMembersBySlot(sunday1);
+            const saturday2Slots = getAvailableMembersBySlot(saturday2);
+            const sunday2Slots = getAvailableMembersBySlot(sunday2);
+            const saturday3Slots = getAvailableMembersBySlot(saturday3);
+            const sunday3Slots = getAvailableMembersBySlot(sunday3);
+
+            return (
+                <div className="flex h-full bg-gray-100">
+                    {/* 左サイドバー: メンバーリスト */}
+                    <div className="w-72 bg-white shadow-lg flex flex-col flex-shrink-0">
+                        <div className="p-4 border-b bg-gradient-to-r from-teal-600 to-teal-700">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                <LucideIcon name="calendar" size={20} />
+                                担当営業スケジュール
+                            </h2>
+                        </div>
+
+                        <div className="p-3 border-b">
+                            <button
+                                onClick={() => setShowAddModal(true)}
+                                className="w-full py-2 px-4 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors flex items-center justify-center gap-2 font-medium"
+                            >
+                                <LucideIcon name="plus" size={18} />
+                                メンバーを追加
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-2">
+                            {scheduleData.members?.length === 0 ? (
+                                <div className="text-center text-gray-500 py-8">
+                                    <LucideIcon name="users" size={48} className="mx-auto mb-3 opacity-30" />
+                                    <p className="text-sm">メンバーがいません</p>
+                                </div>
+                            ) : (
+                                (() => {
+                                    const sidebarTeamColors = {
+                                        '京都': 'bg-orange-500',
+                                        '奈良': 'bg-blue-500',
+                                        '本社': 'bg-emerald-500',
+                                        '豊中': 'bg-yellow-500',
+                                    };
+                                    const getSidebarTeamColor = (team) => sidebarTeamColors[team] || 'bg-gray-500';
+
+                                    return [...(scheduleData.members || [])].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ja')).map(member => (
+                                        <div
+                                            key={member.id}
+                                            onClick={() => { setSelectedMemberId(member.id); setActiveTab('calendar'); }}
+                                            className={`p-3 rounded-lg cursor-pointer mb-2 transition-all ${
+                                                selectedMemberId === member.id && activeTab === 'calendar'
+                                                    ? 'bg-teal-100 border-2 border-teal-500'
+                                                    : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${member.team ? getSidebarTeamColor(member.team) : 'bg-gray-500'}`}>
+                                                        {member.name.charAt(0)}
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-medium text-gray-800">{member.name}</div>
+                                                        {member.team && (
+                                                            <div className="text-xs text-gray-500">{member.team}</div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                {member.calendarUrl && (
+                                                    <LucideIcon name="check-circle" size={16} className="text-green-500" />
+                                                )}
+                                            </div>
+                                        </div>
+                                    ));
+                                })()
+                            )}
+                        </div>
+                    </div>
+
+                    {/* メインエリア */}
+                    <div className="flex-1 p-6 overflow-hidden flex flex-col">
+                        {/* タブ切り替え */}
+                        <div className="bg-white rounded-t-xl shadow-lg border-b flex">
+                            <button
+                                onClick={() => setActiveTab('availability')}
+                                className={`flex-1 py-4 px-6 font-bold text-center transition-colors ${
+                                    activeTab === 'availability'
+                                        ? 'bg-teal-600 text-white'
+                                        : 'text-gray-600 hover:bg-gray-100'
+                                }`}
+                            >
+                                <LucideIcon name="users" size={20} className="inline mr-2" />
+                                土日の空き時間一覧
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('calendar')}
+                                className={`flex-1 py-4 px-6 font-bold text-center transition-colors ${
+                                    activeTab === 'calendar'
+                                        ? 'bg-teal-600 text-white'
+                                        : 'text-gray-600 hover:bg-gray-100'
+                                }`}
+                            >
+                                <LucideIcon name="calendar" size={20} className="inline mr-2" />
+                                個別カレンダー
+                            </button>
+                        </div>
+
+                        {/* 空き時間一覧タブ */}
+                        {activeTab === 'availability' && (
+                            <div className="bg-white rounded-b-xl shadow-lg flex-1 overflow-auto p-6">
+                                {/* 週選択（3週間表示） */}
+                                <div className="flex items-center justify-between mb-6">
+                                    <button
+                                        onClick={() => setSelectedWeekOffset(prev => prev - 3)}
+                                        className="p-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition-colors"
+                                    >
+                                        <LucideIcon name="chevron-left" size={24} />
+                                    </button>
+                                    <div className="text-center">
+                                        <h3 className="text-xl font-bold text-gray-800">
+                                            {formatDate(saturday1)} ～ {formatDate(sunday3)}
+                                        </h3>
+                                        <p className="text-sm text-gray-500 mt-1">
+                                            {selectedWeekOffset === 0 ? '今週末から3週間' : selectedWeekOffset > 0 ? `${selectedWeekOffset}週間後から3週間` : `${Math.abs(selectedWeekOffset)}週間前から3週間`}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => setSelectedWeekOffset(prev => prev + 3)}
+                                        className="p-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition-colors"
+                                    >
+                                        <LucideIcon name="chevron-right" size={24} />
+                                    </button>
+                                </div>
+
+                                {/* チームフィルター */}
+                                <div className="mb-6 flex flex-wrap items-center gap-2">
+                                    {teams.map(team => (
+                                        <button
+                                            key={team}
+                                            onClick={() => setSelectedTeamFilter(team)}
+                                            className={`px-4 py-2 rounded-full font-medium transition-colors ${
+                                                selectedTeamFilter === team
+                                                    ? 'bg-teal-600 text-white'
+                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                            }`}
+                                        >
+                                            {team}
+                                        </button>
+                                    ))}
+                                    <button
+                                        onClick={() => setShowTeamModal(true)}
+                                        className="px-3 py-2 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors text-sm font-medium"
+                                        title="チームを編集"
+                                    >
+                                        編集
+                                    </button>
+                                </div>
+
+                                {apiError && (
+                                    <div className="mb-4 p-4 bg-red-100 border border-red-300 rounded-lg text-red-700">
+                                        <p className="font-bold flex items-center gap-2">
+                                            <LucideIcon name="alert-circle" size={20} />
+                                            Calendar API エラー
+                                        </p>
+                                        <p className="text-sm mt-1">{apiError}</p>
+                                        <p className="text-xs mt-2">
+                                            Google Cloud Console で Calendar API を有効にしてください。
+                                        </p>
+                                    </div>
+                                )}
+
+                                {loadingEvents ? (
+                                    <div className="flex items-center justify-center py-12">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600 mr-3"></div>
+                                        <span className="text-gray-600">カレンダーを読み込み中...</span>
+                                    </div>
+                                ) : filteredMembers?.filter(m => m.calendarUrl).length === 0 ? (
+                                    <div className="text-center py-12 text-gray-500">
+                                        <LucideIcon name="calendar-x" size={64} className="mx-auto mb-4 opacity-30" />
+                                        <p>カレンダーが設定されているメンバーがいません</p>
+                                        <p className="text-sm mt-2">メンバーを追加してGoogleカレンダーを連携してください</p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {(() => {
+                                            // チームごとの色を定義
+                                            const teamColors = {
+                                                '京都': 'bg-orange-500',
+                                                '奈良': 'bg-blue-500',
+                                                '本社': 'bg-emerald-500',
+                                                '豊中': 'bg-yellow-500',
+                                            };
+                                            const getTeamColor = (team) => teamColors[team] || 'bg-gray-500';
+
+                                            return filteredMembers?.filter(m => m.calendarUrl).map(member => {
+                                            // 1週目
+                                            const sat1Avail = calculateAvailability(member.id, saturday1);
+                                            const sun1Avail = calculateAvailability(member.id, sunday1);
+                                            const sat1FreeSlots = sat1Avail.filter(s => !s.isBusy);
+                                            const sun1FreeSlots = sun1Avail.filter(s => !s.isBusy);
+                                            const sat1FreeCount = sat1FreeSlots.length;
+                                            const sun1FreeCount = sun1FreeSlots.length;
+
+                                            // 2週目
+                                            const sat2Avail = calculateAvailability(member.id, saturday2);
+                                            const sun2Avail = calculateAvailability(member.id, sunday2);
+                                            const sat2FreeSlots = sat2Avail.filter(s => !s.isBusy);
+                                            const sun2FreeSlots = sun2Avail.filter(s => !s.isBusy);
+                                            const sat2FreeCount = sat2FreeSlots.length;
+                                            const sun2FreeCount = sun2FreeSlots.length;
+
+                                            // 3週目
+                                            const sat3Avail = calculateAvailability(member.id, saturday3);
+                                            const sun3Avail = calculateAvailability(member.id, sunday3);
+                                            const sat3FreeSlots = sat3Avail.filter(s => !s.isBusy);
+                                            const sun3FreeSlots = sun3Avail.filter(s => !s.isBusy);
+                                            const sat3FreeCount = sat3FreeSlots.length;
+                                            const sun3FreeCount = sun3FreeSlots.length;
+
+                                            const totalFree = sat1FreeCount + sun1FreeCount + sat2FreeCount + sun2FreeCount + sat3FreeCount + sun3FreeCount;
+                                            const isExpanded = expandedMemberId === member.id;
+
+                                            // 連続した空き時間をグループ化
+                                            const groupConsecutiveSlots = (slots) => {
+                                                if (slots.length === 0) return [];
+                                                const groups = [];
+                                                let currentGroup = [slots[0]];
+
+                                                for (let i = 1; i < slots.length; i++) {
+                                                    if (slots[i].hour === currentGroup[currentGroup.length - 1].hour + 1) {
+                                                        currentGroup.push(slots[i]);
+                                                    } else {
+                                                        groups.push(currentGroup);
+                                                        currentGroup = [slots[i]];
+                                                    }
+                                                }
+                                                groups.push(currentGroup);
+                                                return groups;
+                                            };
+
+                                            const sat1Groups = groupConsecutiveSlots(sat1FreeSlots);
+                                            const sun1Groups = groupConsecutiveSlots(sun1FreeSlots);
+                                            const sat2Groups = groupConsecutiveSlots(sat2FreeSlots);
+                                            const sun2Groups = groupConsecutiveSlots(sun2FreeSlots);
+                                            const sat3Groups = groupConsecutiveSlots(sat3FreeSlots);
+                                            const sun3Groups = groupConsecutiveSlots(sun3FreeSlots);
+
+                                            return (
+                                                <div
+                                                    key={member.id}
+                                                    className={`bg-white rounded-xl border-2 transition-all cursor-pointer ${
+                                                        totalFree > 0
+                                                            ? 'border-green-300 hover:border-green-500'
+                                                            : 'border-gray-200 hover:border-gray-400'
+                                                    }`}
+                                                    onClick={() => setExpandedMemberId(isExpanded ? null : member.id)}
+                                                >
+                                                    {/* ヘッダー部分 */}
+                                                    <div className="p-4">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg ${
+                                                                    member.team ? getTeamColor(member.team) : (totalFree > 0 ? 'bg-teal-500' : 'bg-gray-400')
+                                                                }`}>
+                                                                    {member.name.charAt(0)}
+                                                                </div>
+                                                                <div>
+                                                                    <div className="font-bold text-gray-800 text-lg">{member.name}</div>
+                                                                    {member.team && (
+                                                                        <span className="text-xs bg-gray-200 px-2 py-0.5 rounded-full text-gray-600">
+                                                                            {member.team}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                {totalFree > 0 ? (
+                                                                    <div className="text-green-600 font-bold text-xl">{totalFree}h 空き</div>
+                                                                ) : (
+                                                                    <div className="text-gray-400 font-bold">空きなし</div>
+                                                                )}
+                                                                <LucideIcon
+                                                                    name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                                                                    size={20}
+                                                                    className="text-gray-400 ml-auto"
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        {/* 簡易サマリー（3週間分） */}
+                                                        <div className="mt-3 space-y-1">
+                                                            <div className="flex gap-3 text-xs">
+                                                                <span className="text-gray-500 w-12">1週目:</span>
+                                                                <span className={`${sat1FreeCount > 0 ? 'text-blue-600' : 'text-gray-400'}`}>土 {sat1FreeCount}h</span>
+                                                                <span className={`${sun1FreeCount > 0 ? 'text-orange-600' : 'text-gray-400'}`}>日 {sun1FreeCount}h</span>
+                                                            </div>
+                                                            <div className="flex gap-3 text-xs">
+                                                                <span className="text-gray-500 w-12">2週目:</span>
+                                                                <span className={`${sat2FreeCount > 0 ? 'text-blue-600' : 'text-gray-400'}`}>土 {sat2FreeCount}h</span>
+                                                                <span className={`${sun2FreeCount > 0 ? 'text-orange-600' : 'text-gray-400'}`}>日 {sun2FreeCount}h</span>
+                                                            </div>
+                                                            <div className="flex gap-3 text-xs">
+                                                                <span className="text-gray-500 w-12">3週目:</span>
+                                                                <span className={`${sat3FreeCount > 0 ? 'text-blue-600' : 'text-gray-400'}`}>土 {sat3FreeCount}h</span>
+                                                                <span className={`${sun3FreeCount > 0 ? 'text-orange-600' : 'text-gray-400'}`}>日 {sun3FreeCount}h</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* 展開時の詳細（3週間分）- 空き時間のみ表示 */}
+                                                    {isExpanded && (
+                                                        <div className="border-t bg-gray-50 p-4">
+                                                            {(() => {
+                                                                const DaySchedule = ({ date, freeGroups, colorClass }) => (
+                                                                    <div>
+                                                                        <h5 className={`font-bold ${colorClass} mb-2 flex items-center gap-1 text-sm`}>
+                                                                            <LucideIcon name="calendar" size={14} />
+                                                                            {formatDate(date)}
+                                                                        </h5>
+                                                                        {freeGroups.length > 0 ? (
+                                                                            <div className="space-y-1">
+                                                                                {freeGroups.map((group, idx) => (
+                                                                                    <div key={idx} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                                                                                        {group[0].hour}:00 - {group[group.length - 1].hour + 1}:00
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <p className="text-gray-400 text-xs">空きなし</p>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                                return (
+                                                                    <>
+                                                                        {/* 1週目 */}
+                                                                        <div className="mb-4">
+                                                                            <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">1週目</h4>
+                                                                            <div className="grid grid-cols-2 gap-4">
+                                                                                <DaySchedule date={saturday1} freeGroups={sat1Groups} colorClass="text-blue-700" />
+                                                                                <DaySchedule date={sunday1} freeGroups={sun1Groups} colorClass="text-orange-700" />
+                                                                            </div>
+                                                                        </div>
+                                                                        {/* 2週目 */}
+                                                                        <div className="mb-4">
+                                                                            <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">2週目</h4>
+                                                                            <div className="grid grid-cols-2 gap-4">
+                                                                                <DaySchedule date={saturday2} freeGroups={sat2Groups} colorClass="text-blue-700" />
+                                                                                <DaySchedule date={sunday2} freeGroups={sun2Groups} colorClass="text-orange-700" />
+                                                                            </div>
+                                                                        </div>
+                                                                        {/* 3週目 */}
+                                                                        <div className="mb-3">
+                                                                            <h4 className="font-bold text-gray-700 mb-2 text-sm border-b pb-1">3週目</h4>
+                                                                            <div className="grid grid-cols-2 gap-4">
+                                                                                <DaySchedule date={saturday3} freeGroups={sat3Groups} colorClass="text-blue-700" />
+                                                                                <DaySchedule date={sunday3} freeGroups={sun3Groups} colorClass="text-orange-700" />
+                                                                            </div>
+                                                                        </div>
+                                                                    </>
+                                                                );
+                                                            })()}
+
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); setSelectedMemberId(member.id); setActiveTab('calendar'); }}
+                                                                className="mt-3 w-full py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+                                                            >
+                                                                カレンダーを見る
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        });
+                                        })()}
+                                    </div>
+                                )}
+
+                                <div className="mt-6 text-center">
+                                    <button
+                                        onClick={fetchAllMembersEvents}
+                                        className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors inline-flex items-center gap-2"
+                                    >
+                                        <LucideIcon name="refresh-cw" size={18} />
+                                        データを更新
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 個別カレンダータブ */}
+                        {activeTab === 'calendar' && (
+                            <div className="bg-white rounded-b-xl shadow-lg flex-1 flex flex-col overflow-hidden">
+                                {selectedMember ? (
+                                    <>
+                                        <div className="p-4 border-b flex items-center justify-between flex-shrink-0">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold ${
+                                                    selectedMember.team === '京都' ? 'bg-orange-500' :
+                                                    selectedMember.team === '奈良' ? 'bg-blue-500' :
+                                                    selectedMember.team === '本社' ? 'bg-emerald-500' :
+                                                    selectedMember.team === '豊中' ? 'bg-yellow-500' :
+                                                    'bg-gray-500'
+                                                }`}>
+                                                    {selectedMember.name.charAt(0)}
+                                                </div>
+                                                <div>
+                                                    <h2 className="text-xl font-bold text-gray-800">{selectedMember.name}</h2>
+                                                    <p className="text-sm text-gray-500">
+                                                        {selectedMember.calendarUrl ? 'Googleカレンダー連携済み' : 'カレンダー未設定'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => setIsEditMode(!isEditMode)}
+                                                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                                                        isEditMode ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                    }`}
+                                                >
+                                                    {isEditMode ? '完了' : '編集'}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteMember(selectedMember.id)}
+                                                    className="px-4 py-2 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
+                                                >
+                                                    <LucideIcon name="trash-2" size={18} />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {isEditMode && (
+                                            <div className="p-4 bg-gray-50 border-b space-y-4 flex-shrink-0">
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">メンバー名</label>
+                                                        <input
+                                                            type="text"
+                                                            value={selectedMember.name}
+                                                            onChange={(e) => handleUpdateMember(selectedMember.id, { name: e.target.value })}
+                                                            className="w-full p-2 border border-gray-300 rounded-lg"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">チーム</label>
+                                                        <select
+                                                            value={selectedMember.team || ''}
+                                                            onChange={(e) => handleUpdateMember(selectedMember.id, { team: e.target.value })}
+                                                            className="w-full p-2 border border-gray-300 rounded-lg"
+                                                        >
+                                                            <option value="">チームを選択</option>
+                                                            {teams.filter(t => t !== '全体').map(team => (
+                                                                <option key={team} value={team}>{team}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        GoogleカレンダーID（メールアドレス形式）
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={selectedMember.calendarUrl || ''}
+                                                        onChange={(e) => handleUpdateMember(selectedMember.id, { calendarUrl: e.target.value })}
+                                                        placeholder="例: example@gmail.com"
+                                                        className="w-full p-2 border border-gray-300 rounded-lg"
+                                                    />
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Googleカレンダーの設定 → カレンダーの統合 → 「カレンダーID」をコピー
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="flex-1 flex flex-col overflow-hidden">
+                                            {selectedMember.calendarUrl ? (
+                                                (() => {
+                                                    const memberEvents = eventsData[selectedMember.id] || [];
+
+                                                    // 日付ごとにイベントをグループ化
+                                                    const getEventsByDate = (events) => {
+                                                        const eventsByDate = {};
+                                                        events.forEach(event => {
+                                                            const eventTitle = event.summary || '(タイトルなし)';
+                                                            const startDate = new Date(event.start.dateTime || event.start.date);
+                                                            const endDate = new Date(event.end.dateTime || event.end.date);
+                                                            const dateKey = startDate.toDateString();
+
+                                                            if (!eventsByDate[dateKey]) {
+                                                                eventsByDate[dateKey] = [];
+                                                            }
+
+                                                            const isAllDay = !event.start.dateTime;
+                                                            eventsByDate[dateKey].push({
+                                                                title: eventTitle,
+                                                                start: startDate,
+                                                                end: endDate,
+                                                                isAllDay
+                                                            });
+                                                        });
+                                                        return eventsByDate;
+                                                    };
+
+                                                    const eventsByDate = getEventsByDate(memberEvents);
+
+                                                    // 週の開始日を取得
+                                                    const getWeekStart = (date) => {
+                                                        const d = new Date(date);
+                                                        const day = d.getDay();
+                                                        d.setDate(d.getDate() - day);
+                                                        d.setHours(0, 0, 0, 0);
+                                                        return d;
+                                                    };
+
+                                                    // 月の日付配列を取得
+                                                    const getMonthDates = (date) => {
+                                                        const year = date.getFullYear();
+                                                        const month = date.getMonth();
+                                                        const firstDay = new Date(year, month, 1);
+                                                        const lastDay = new Date(year, month + 1, 0);
+                                                        const startDate = new Date(firstDay);
+                                                        startDate.setDate(startDate.getDate() - firstDay.getDay());
+
+                                                        const dates = [];
+                                                        const current = new Date(startDate);
+                                                        while (dates.length < 42) {
+                                                            dates.push(new Date(current));
+                                                            current.setDate(current.getDate() + 1);
+                                                        }
+                                                        return dates;
+                                                    };
+
+                                                    const formatTime = (date) => `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+                                                    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+
+                                                    return (
+                                                        <div className="flex flex-col h-full">
+                                                            {/* 表示切替タブとナビゲーション */}
+                                                            <div className="p-3 border-b bg-gray-50 flex items-center justify-between flex-shrink-0">
+                                                                <div className="flex gap-1">
+                                                                    {['day', 'week', 'month'].map(mode => (
+                                                                        <button
+                                                                            key={mode}
+                                                                            onClick={() => setCalendarViewMode(mode)}
+                                                                            className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                                                                                calendarViewMode === mode ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
+                                                                            }`}
+                                                                        >
+                                                                            {mode === 'day' ? '日' : mode === 'week' ? '週' : '月'}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            const d = new Date(calendarDate);
+                                                                            if (calendarViewMode === 'day') d.setDate(d.getDate() - 1);
+                                                                            else if (calendarViewMode === 'week') d.setDate(d.getDate() - 7);
+                                                                            else d.setMonth(d.getMonth() - 1);
+                                                                            setCalendarDate(d);
+                                                                        }}
+                                                                        className="p-1 rounded hover:bg-gray-200"
+                                                                    >
+                                                                        <LucideIcon name="chevron-left" size={20} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => setCalendarDate(new Date())}
+                                                                        className="px-2 py-1 text-sm bg-white rounded hover:bg-gray-100"
+                                                                    >
+                                                                        今日
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            const d = new Date(calendarDate);
+                                                                            if (calendarViewMode === 'day') d.setDate(d.getDate() + 1);
+                                                                            else if (calendarViewMode === 'week') d.setDate(d.getDate() + 7);
+                                                                            else d.setMonth(d.getMonth() + 1);
+                                                                            setCalendarDate(d);
+                                                                        }}
+                                                                        className="p-1 rounded hover:bg-gray-200"
+                                                                    >
+                                                                        <LucideIcon name="chevron-right" size={20} />
+                                                                    </button>
+                                                                </div>
+                                                                <div className="text-sm font-bold text-gray-700">
+                                                                    {calendarDate.getFullYear()}年{calendarDate.getMonth() + 1}月
+                                                                    {calendarViewMode === 'day' && `${calendarDate.getDate()}日`}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* カレンダー本体 */}
+                                                            <div className="flex-1 overflow-auto p-2">
+                                                                {/* 日表示 */}
+                                                                {calendarViewMode === 'day' && (
+                                                                    <div className="bg-white rounded-lg p-4">
+                                                                        <h3 className="text-lg font-bold text-gray-800 mb-4">
+                                                                            {calendarDate.getMonth() + 1}月{calendarDate.getDate()}日({dayNames[calendarDate.getDay()]})
+                                                                        </h3>
+                                                                        <div className="space-y-1">
+                                                                            {(eventsByDate[calendarDate.toDateString()] || []).length > 0 ? (
+                                                                                (eventsByDate[calendarDate.toDateString()] || []).map((ev, idx) => (
+                                                                                    <div key={idx} className="p-3 bg-blue-50 rounded-lg border-l-4 border-blue-500">
+                                                                                        <div className="font-bold text-gray-800">予定あり</div>
+                                                                                        <div className="text-sm text-gray-500">
+                                                                                            {ev.isAllDay ? '終日' : `${formatTime(ev.start)} - ${formatTime(ev.end)}`}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ))
+                                                                            ) : (
+                                                                                <p className="text-gray-400 text-center py-8">この日の予定はありません</p>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* 週表示 */}
+                                                                {calendarViewMode === 'week' && (
+                                                                    <div className="bg-white rounded-lg">
+                                                                        <div className="grid grid-cols-7 border-b">
+                                                                            {dayNames.map((day, i) => (
+                                                                                <div key={day} className={`p-2 text-center text-sm font-bold ${i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-600'}`}>
+                                                                                    {day}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                        <div className="grid grid-cols-7">
+                                                                            {(() => {
+                                                                                const weekStart = getWeekStart(calendarDate);
+                                                                                return Array.from({ length: 7 }, (_, i) => {
+                                                                                    const d = new Date(weekStart);
+                                                                                    d.setDate(d.getDate() + i);
+                                                                                    const isToday = d.toDateString() === new Date().toDateString();
+                                                                                    const dayEvents = eventsByDate[d.toDateString()] || [];
+                                                                                    return (
+                                                                                        <div key={i} className={`min-h-32 p-2 border-r border-b ${isToday ? 'bg-blue-50' : ''}`}>
+                                                                                            <div className={`text-sm font-bold mb-1 ${isToday ? 'text-blue-600' : ''}`}>
+                                                                                                {d.getDate()}
+                                                                                            </div>
+                                                                                            <div className="space-y-1">
+                                                                                                {dayEvents.slice(0, 3).map((ev, idx) => (
+                                                                                                    <div key={idx} className="text-xs p-1 bg-blue-100 rounded truncate">
+                                                                                                        {ev.isAllDay ? '終日' : `${formatTime(ev.start)}`} 予定あり
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                                {dayEvents.length > 3 && (
+                                                                                                    <div className="text-xs text-gray-500">+{dayEvents.length - 3}件</div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    );
+                                                                                });
+                                                                            })()}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* 月表示 */}
+                                                                {calendarViewMode === 'month' && (
+                                                                    <div className="bg-white rounded-lg">
+                                                                        <div className="grid grid-cols-7 border-b">
+                                                                            {dayNames.map((day, i) => (
+                                                                                <div key={day} className={`p-2 text-center text-sm font-bold ${i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-600'}`}>
+                                                                                    {day}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                        <div className="grid grid-cols-7">
+                                                                            {getMonthDates(calendarDate).map((d, i) => {
+                                                                                const isCurrentMonth = d.getMonth() === calendarDate.getMonth();
+                                                                                const isToday = d.toDateString() === new Date().toDateString();
+                                                                                const dayEvents = eventsByDate[d.toDateString()] || [];
+                                                                                return (
+                                                                                    <div
+                                                                                        key={i}
+                                                                                        className={`min-h-24 p-1 border-r border-b ${!isCurrentMonth ? 'bg-gray-50' : ''} ${isToday ? 'bg-blue-50' : ''}`}
+                                                                                    >
+                                                                                        <div className={`text-xs font-bold mb-1 ${!isCurrentMonth ? 'text-gray-300' : isToday ? 'text-blue-600' : ''}`}>
+                                                                                            {d.getDate()}
+                                                                                        </div>
+                                                                                        {isCurrentMonth && (
+                                                                                            <div className="space-y-0.5">
+                                                                                                {dayEvents.slice(0, 2).map((ev, idx) => (
+                                                                                                    <div key={idx} className="text-xs p-0.5 bg-blue-100 rounded truncate">
+                                                                                                        予定あり
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                                {dayEvents.length > 2 && (
+                                                                                                    <div className="text-xs text-gray-500">+{dayEvents.length - 2}</div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()
+                                            ) : (
+                                                <div className="h-full flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                                                    <div className="text-center">
+                                                        <LucideIcon name="calendar-x" size={64} className="mx-auto mb-4 text-gray-300" />
+                                                        <p className="text-gray-500 mb-2">カレンダーが設定されていません</p>
+                                                        <p className="text-sm text-gray-400">「編集」からGoogleカレンダーIDを設定してください</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex-1 flex items-center justify-center">
+                                        <div className="text-center">
+                                            <LucideIcon name="calendar" size={64} className="mx-auto mb-4 text-gray-300" />
+                                            <p className="text-gray-500">左のリストからメンバーを選択してください</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* メンバー追加モーダル */}
+                    {showAddModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+                                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                    <LucideIcon name="user-plus" size={24} className="text-teal-600" />
+                                    メンバーを追加
+                                </h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">メンバー名 *</label>
+                                        <input
+                                            type="text"
+                                            value={newMemberName}
+                                            onChange={(e) => setNewMemberName(e.target.value)}
+                                            placeholder="例: 山田太郎"
+                                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">チーム *</label>
+                                        <select
+                                            value={newMemberTeam}
+                                            onChange={(e) => setNewMemberTeam(e.target.value)}
+                                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                        >
+                                            <option value="">チームを選択</option>
+                                            {teams.filter(t => t !== '全体').map(team => (
+                                                <option key={team} value={team}>{team}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">GoogleカレンダーID（後で設定可）</label>
+                                        <input
+                                            type="text"
+                                            value={newCalendarUrl}
+                                            onChange={(e) => setNewCalendarUrl(e.target.value)}
+                                            placeholder="例: example@gmail.com"
+                                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-3 mt-6">
+                                    <button
+                                        onClick={() => {
+                                            setShowAddModal(false);
+                                            setNewMemberName('');
+                                            setNewCalendarUrl('');
+                                            setNewMemberTeam('');
+                                        }}
+                                        className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
+                                    >
+                                        キャンセル
+                                    </button>
+                                    <button
+                                        onClick={handleAddMember}
+                                        disabled={!newMemberName.trim()}
+                                        className="px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        追加
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* チーム管理モーダル */}
+                    {showTeamModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+                                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                    <LucideIcon name="users" size={24} className="text-teal-600" />
+                                    チーム管理
+                                </h3>
+
+                                {/* 既存チームリスト */}
+                                <div className="space-y-2 mb-4 max-h-64 overflow-y-auto">
+                                    {teams.map((team, index) => (
+                                        <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                                            {editingTeamIndex === index ? (
+                                                <>
+                                                    <input
+                                                        type="text"
+                                                        value={editingTeamName}
+                                                        onChange={(e) => setEditingTeamName(e.target.value)}
+                                                        className="flex-1 p-2 border border-gray-300 rounded"
+                                                        autoFocus
+                                                    />
+                                                    <button
+                                                        onClick={() => handleUpdateTeam(index)}
+                                                        className="p-2 bg-green-500 text-white rounded hover:bg-green-600"
+                                                    >
+                                                        <LucideIcon name="check" size={16} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setEditingTeamIndex(null); setEditingTeamName(''); }}
+                                                        className="p-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+                                                    >
+                                                        <LucideIcon name="x" size={16} />
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="flex-1 font-medium text-gray-800">
+                                                        {team}
+                                                        {index === 0 && <span className="text-xs text-gray-400 ml-2">(固定)</span>}
+                                                    </span>
+                                                    {index !== 0 && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => { setEditingTeamIndex(index); setEditingTeamName(team); }}
+                                                                className="p-2 text-blue-600 hover:bg-blue-100 rounded"
+                                                            >
+                                                                <LucideIcon name="edit-2" size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteTeam(index)}
+                                                                className="p-2 text-red-600 hover:bg-red-100 rounded"
+                                                            >
+                                                                <LucideIcon name="trash-2" size={16} />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* 新規チーム追加 */}
+                                <div className="flex gap-2 mb-4">
+                                    <input
+                                        type="text"
+                                        value={newTeamName}
+                                        onChange={(e) => setNewTeamName(e.target.value)}
+                                        placeholder="新しいチーム名"
+                                        className="flex-1 p-2 border border-gray-300 rounded-lg"
+                                        onKeyPress={(e) => e.key === 'Enter' && handleAddTeam()}
+                                    />
+                                    <button
+                                        onClick={handleAddTeam}
+                                        disabled={!newTeamName.trim()}
+                                        className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                                    >
+                                        <LucideIcon name="plus" size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="flex justify-end">
+                                    <button
+                                        onClick={() => { setShowTeamModal(false); setNewTeamName(''); setEditingTeamIndex(null); }}
+                                        className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
+                                    >
+                                        閉じる
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // ==========================================
+        //  6. Root App & Unified App
+        // ==========================================
+
+        const HomePage = ({ onNavigate }) => {
+            const menuItems = [
+                { id: 'dashboard', title: '営業ダッシュボード', icon: 'bar-chart-2', color: 'bg-purple-500', desc: '契約ランキング・チーム見込み（自動連携）' },
+                { id: 'sales', title: '営業育成管理', icon: 'users', color: 'bg-blue-500', desc: 'スタッフのスキル習得状況、AIロープレ支援' },
+                { id: 'flow', title: '営業作業フロー', icon: 'clipboard-list', color: 'bg-emerald-500', desc: '契約までの標準工程とマニュアル管理' },
+                { id: 'schedule', title: '担当営業スケジュール', icon: 'calendar-days', color: 'bg-teal-500', desc: '各担当者のGoogleカレンダー連携・空き時間確認' },
+                { id: 'bank', title: '各種銀行', icon: 'landmark', color: 'bg-amber-500', desc: '提携金融機関の金利・手数料・必要書類DB' },
+                { id: 'debut', title: 'デビュー研修一覧', icon: 'graduation-cap', color: 'bg-indigo-500', desc: '新人営業マン向けの標準研修カリキュラム' },
+                { id: 'stockcon', title: 'ストコン情報', icon: 'building-2', color: 'bg-rose-500', desc: '会社別の資金計画書・プラン情報管理' },
+            ];
+
+            return (
+                <div className="h-full overflow-y-auto bg-gray-50 p-6 md:p-10">
+                    <div className="max-w-2xl mx-auto">
+                        {/* ヘッダー */}
+                        <div className="text-center mb-10">
+                            <h1 className="text-3xl font-bold text-gray-800 mb-2">G-house</h1>
+                            <p className="text-gray-500">営業支援システム</p>
+                        </div>
+
+                        {/* メニューリスト */}
+                        <div className="space-y-3">
+                            {menuItems.map(item => (
+                                <div
+                                    key={item.id}
+                                    onClick={() => onNavigate(item.id)}
+                                    className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer border border-gray-100 hover:border-gray-200 group"
+                                >
+                                    <div className="flex items-center p-4">
+                                        <div className={`${item.color} w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0`}>
+                                            <LucideIcon name={item.icon} className="text-white" size={24}/>
+                                        </div>
+                                        <div className="ml-4 flex-1 min-w-0">
+                                            <h2 className="text-base font-bold text-gray-800">{item.title}</h2>
+                                            <p className="text-gray-500 text-sm mt-0.5">{item.desc}</p>
+                                        </div>
+                                        <LucideIcon name="chevron-right" className="text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0 ml-2" size={20}/>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        //  ログイン画面コンポーネント（メール/パスワード認証）
+        // ==========================================
+
+        const LoginScreen = ({ onLogin }) => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+            const [isSetupMode, setIsSetupMode] = useState(false);
+            const [setupName, setSetupName] = useState('');
+            const [noUsersExist, setNoUsersExist] = useState(false);
+
+            useEffect(() => {
+                database.ref('users').once('value').then(snap => {
+                    setNoUsersExist(!snap.exists());
+                });
+            }, []);
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setError('');
+                setIsLoading(true);
+                _authHandlerActive = true;
+                try {
+                    const result = await auth.signInWithEmailAndPassword(email.trim(), password);
+                    const user = result.user;
+                    const snap = await database.ref(`users/${user.uid}`).once('value');
+                    if (!snap.exists() || snap.val().disabled) {
+                        await auth.signOut();
+                        setError('アクセス権限がありません。管理者にお問い合わせください');
+                        return;
+                    }
+                    const userData = snap.val();
+                    onLogin(userData.email, userData.name, userData.isAdmin || false);
+                } catch (err) {
+                    if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+                        setError('メールアドレスまたはパスワードが正しくありません');
+                    } else {
+                        setError('ログインに失敗しました: ' + err.message);
+                    }
+                } finally {
+                    _authHandlerActive = false;
+                    setIsLoading(false);
+                }
+            };
+
+            const handleInitialSetup = async (e) => {
+                e.preventDefault();
+                if (!setupName.trim()) { setError('お名前を入力してください'); return; }
+                setError('');
+                setIsLoading(true);
+                _authHandlerActive = true;
+                try {
+                    let uid, userEmail;
+                    try {
+                        const result = await auth.createUserWithEmailAndPassword(email.trim(), password);
+                        uid = result.user.uid;
+                        userEmail = result.user.email;
+                    } catch (createErr) {
+                        if (createErr.code === 'auth/email-already-in-use') {
+                            // 前回の途中失敗でAuthにアカウントが残っている場合 → サインインして継続
+                            const loginResult = await auth.signInWithEmailAndPassword(email.trim(), password);
+                            uid = loginResult.user.uid;
+                            userEmail = loginResult.user.email;
+                        } else {
+                            throw createErr;
+                        }
+                    }
+                    // DBにエントリが無ければ作成
+                    const existingSnap = await database.ref(`users/${uid}`).once('value');
+                    if (!existingSnap.exists()) {
+                        await database.ref(`users/${uid}`).set({
+                            email: userEmail,
+                            name: setupName.trim(),
+                            isAdmin: true,
+                            disabled: false,
+                            createdAt: new Date().toISOString()
+                        });
+                    }
+                    const snap = await database.ref(`users/${uid}`).once('value');
+                    const userData = snap.val();
+                    onLogin(userData.email, userData.name, userData.isAdmin !== false);
+                } catch (err) {
+                    if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+                        setError('パスワードが正しくありません');
+                    } else {
+                        setError('設定に失敗しました: ' + err.message);
+                    }
+                } finally {
+                    _authHandlerActive = false;
+                    setIsLoading(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-600 via-blue-700 to-blue-800 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                        {/* ヘッダー */}
+                        <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-8 text-center">
+                            <div className="w-20 h-20 bg-white rounded-full mx-auto mb-4 flex items-center justify-center shadow-lg">
+                                <LucideIcon name="building-2" size={40} className="text-blue-600" />
+                            </div>
+                            <h1 className="text-2xl font-bold text-white">G-house</h1>
+                            <p className="text-blue-200 mt-1">営業管理システム</p>
+                        </div>
+
+                        {/* ログインエリア */}
+                        <div className="p-8">
+                            {isSetupMode && noUsersExist ? (
+                                <form onSubmit={handleInitialSetup} className="space-y-4">
+                                    <div className="text-center mb-4">
+                                        <span className="inline-block bg-blue-100 text-blue-700 text-xs font-bold px-3 py-1 rounded-full mb-2">初期設定</span>
+                                        <p className="text-sm text-gray-600">管理者アカウントを作成してください</p>
+                                    </div>
+                                    {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">お名前</label>
+                                        <input type="text" value={setupName} onChange={e => setSetupName(e.target.value)} placeholder="例：佐古" required className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+                                        <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="例：sy@g-house.osaka.jp" required className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">パスワード（8文字以上）</label>
+                                        <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="パスワードを設定" required minLength={8} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm" />
+                                    </div>
+                                    <button type="submit" disabled={isLoading} className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                        {isLoading ? '設定中...' : '管理者アカウントを作成'}
+                                    </button>
+                                    <button type="button" onClick={() => { setIsSetupMode(false); setError(''); }} className="w-full py-2 text-sm text-gray-500 hover:text-gray-700 transition">← ログイン画面に戻る</button>
+                                </form>
+                            ) : (
+                                <form onSubmit={handleLogin} className="space-y-4">
+                                    <div className="text-center mb-2">
+                                        <p className="text-gray-600 text-sm">メールアドレスとパスワードでログイン</p>
+                                    </div>
+                                    {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+                                        <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="メールアドレスを入力" required className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">パスワード</label>
+                                        <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="パスワードを入力" required className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm" />
+                                    </div>
+                                    <button type="submit" disabled={isLoading} className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                        {isLoading ? 'ログイン中...' : 'ログイン'}
+                                    </button>
+                                    {noUsersExist && (
+                                        <button type="button" onClick={() => { setIsSetupMode(true); setError(''); }} className="w-full py-2 text-sm text-blue-500 hover:text-blue-700 transition">初期設定（初回のみ）</button>
+                                    )}
+                                </form>
+                            )}
+                        </div>
+
+                        {/* フッター */}
+                        <div className="bg-gray-50 px-8 py-4 text-center border-t border-gray-200">
+                            <p className="text-xs text-gray-500">© 2026 G-house All Rights Reserved.</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        //  Firebase診断コンポーネント
+        // ==========================================
+        const FirebaseDiagnostics = ({ onClose }) => {
+            const [diagnosticData, setDiagnosticData] = useState({});
+            const [fullData, setFullData] = useState({});
+            const [isChecking, setIsChecking] = useState(true);
+            const [isExporting, setIsExporting] = useState(false);
+            const [importStatus, setImportStatus] = useState('');
+
+            const dataPaths = [
+                'flowSteps',
+                'banks',
+                'salesReps',
+                'trainingItems',
+                'progress',
+                'contracts',
+                'debutTraining',
+                'stockConCompanies',
+                'scheduleData'
+            ];
+
+            useEffect(() => {
+                const checkData = async () => {
+                    const results = {};
+                    const allData = {};
+                    for (const path of dataPaths) {
+                        try {
+                            const snapshot = await database.ref(path).once('value');
+                            const data = snapshot.val();
+                            if (data !== null && data !== undefined) {
+                                const dataSize = JSON.stringify(data).length;
+                                const itemCount = Array.isArray(data) ? data.length : (typeof data === 'object' ? Object.keys(data).length : 1);
+                                results[path] = {
+                                    exists: true,
+                                    itemCount: itemCount,
+                                    dataSize: dataSize,
+                                    preview: JSON.stringify(data).substring(0, 100) + '...'
+                                };
+                                allData[path] = data;
+                            } else {
+                                results[path] = { exists: false };
+                            }
+                        } catch (error) {
+                            results[path] = { exists: false, error: error.message };
+                        }
+                    }
+                    setDiagnosticData(results);
+                    setFullData(allData);
+                    setIsChecking(false);
+                };
+                checkData();
+            }, []);
+
+            const handleExportData = async () => {
+                setIsExporting(true);
+                try {
+                    const exportData = {
+                        exportDate: new Date().toISOString(),
+                        version: '1.0',
+                        data: fullData
+                    };
+                    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `ghouse-backup-${new Date().toISOString().split('T')[0]}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } catch (error) {
+                    console.error('Export failed:', error);
+                    alert('エクスポートに失敗しました');
+                }
+                setIsExporting(false);
+            };
+
+            const handleImportData = async (event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+
+                setImportStatus('reading');
+                try {
+                    const text = await file.text();
+                    const importedData = JSON.parse(text);
+
+                    if (!importedData.data) {
+                        throw new Error('Invalid backup file format');
+                    }
+
+                    setImportStatus('importing');
+                    const dataToRestore = importedData.data;
+
+                    for (const [path, data] of Object.entries(dataToRestore)) {
+                        if (dataPaths.includes(path) && data !== null && data !== undefined) {
+                            await database.ref(path).set(data);
+                            console.log(`Restored ${path}`);
+                        }
+                    }
+
+                    setImportStatus('success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                } catch (error) {
+                    console.error('Import failed:', error);
+                    setImportStatus('error');
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-auto">
+                        <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+                            <h2 className="text-lg font-bold">Firebase データ診断</h2>
+                            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded">
+                                <LucideIcon name="x" size={20} />
+                            </button>
+                        </div>
+                        <div className="p-4">
+                            {isChecking ? (
+                                <div className="text-center py-8">
+                                    <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                                    <p>データを確認中...</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {/* データ状態一覧 */}
+                                    {dataPaths.map(path => {
+                                        const info = diagnosticData[path] || {};
+                                        return (
+                                            <div key={path} className={`p-3 rounded-lg border ${info.exists ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                                                <div className="flex items-center gap-2">
+                                                    <LucideIcon
+                                                        name={info.exists ? 'check-circle' : 'x-circle'}
+                                                        size={20}
+                                                        className={info.exists ? 'text-green-600' : 'text-red-600'}
+                                                    />
+                                                    <span className="font-medium">{path}</span>
+                                                </div>
+                                                {info.exists ? (
+                                                    <div className="mt-1 text-sm text-gray-600 ml-7">
+                                                        <p>アイテム数: {info.itemCount} | データサイズ: {(info.dataSize / 1024).toFixed(1)} KB</p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="mt-1 text-sm text-red-600 ml-7">
+                                                        データなし {info.error && `(${info.error})`}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+
+                                    {/* エクスポート・インポートセクション */}
+                                    <div className="mt-6 pt-4 border-t">
+                                        <h3 className="font-bold text-gray-800 mb-3">データバックアップ・復元</h3>
+                                        <div className="flex gap-3">
+                                            <button
+                                                onClick={handleExportData}
+                                                disabled={isExporting || Object.keys(fullData).length === 0}
+                                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                <LucideIcon name="download" size={18} />
+                                                {isExporting ? 'エクスポート中...' : 'データをエクスポート'}
+                                            </button>
+                                            <label className="flex-1">
+                                                <div className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer">
+                                                    <LucideIcon name="upload" size={18} />
+                                                    バックアップから復元
+                                                </div>
+                                                <input
+                                                    type="file"
+                                                    accept=".json"
+                                                    onChange={handleImportData}
+                                                    className="hidden"
+                                                />
+                                            </label>
+                                        </div>
+                                        {importStatus && (
+                                            <div className={`mt-3 p-3 rounded-lg ${
+                                                importStatus === 'success' ? 'bg-green-100 text-green-800' :
+                                                importStatus === 'error' ? 'bg-red-100 text-red-800' :
+                                                'bg-blue-100 text-blue-800'
+                                            }`}>
+                                                {importStatus === 'reading' && 'ファイルを読み込み中...'}
+                                                {importStatus === 'importing' && 'データを復元中...'}
+                                                {importStatus === 'success' && '復元完了！ページを再読み込みします...'}
+                                                {importStatus === 'error' && '復元に失敗しました。ファイル形式を確認してください。'}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                        <p className="text-sm text-yellow-800">
+                                            <strong>注意:</strong> データが「なし」と表示されている場合、そのデータはFirebaseに保存されていません。
+                                            バックアップファイルがある場合は「バックアップから復元」で復旧できます。
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        //  ユーザー管理コンポーネント（管理者専用）
+        // ==========================================
+
+        const UserManagementApp = () => {
+            const [users, setUsers] = useState([]);
+            const [isLoading, setIsLoading] = useState(true);
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [newEmail, setNewEmail] = useState('');
+            const [newName, setNewName] = useState('');
+            const [newIsAdmin, setNewIsAdmin] = useState(false);
+            const [addError, setAddError] = useState('');
+            const [isAdding, setIsAdding] = useState(false);
+            const [message, setMessage] = useState('');
+            const [editTarget, setEditTarget] = useState(null);
+            const [editName, setEditName] = useState('');
+            const [editIsAdmin, setEditIsAdmin] = useState(false);
+            const [isSaving, setIsSaving] = useState(false);
+
+            useEffect(() => {
+                const ref = database.ref('users');
+                const handler = snap => {
+                    if (snap.exists()) {
+                        const data = snap.val();
+                        const list = Object.entries(data).map(([uid, u]) => ({ uid, ...u }));
+                        setUsers(list.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
+                    } else {
+                        setUsers([]);
+                    }
+                    setIsLoading(false);
+                };
+                ref.on('value', handler);
+                return () => ref.off('value', handler);
+            }, []);
+
+            const showMsg = (msg) => { setMessage(msg); setTimeout(() => setMessage(''), 3000); };
+
+            const handleAddUser = async (e) => {
+                e.preventDefault();
+                setAddError('');
+                setIsAdding(true);
+                const autoPassword = generatePassword();
+                const emailTrimmed = newEmail.trim();
+                const nameTrimmed = newName.trim();
+                try {
+                    // ① Firebaseアカウント作成
+                    const secondaryApp = firebase.initializeApp(firebaseConfig, 'secondary_' + Date.now());
+                    const secondaryAuth = secondaryApp.auth();
+                    let uid;
+                    try {
+                        const result = await secondaryAuth.createUserWithEmailAndPassword(emailTrimmed, autoPassword);
+                        uid = result.user.uid;
+                    } catch (authErr) {
+                        if (authErr.code === 'auth/email-already-in-use') {
+                            setAddError('このメールアドレスは既に使用されています');
+                            return;
+                        }
+                        throw authErr;
+                    } finally {
+                        await secondaryAuth.signOut().catch(() => {});
+                        await secondaryApp.delete().catch(() => {});
+                    }
+                    await database.ref(`users/${uid}`).set({
+                        email: emailTrimmed,
+                        name: nameTrimmed,
+                        isAdmin: newIsAdmin,
+                        disabled: false,
+                        createdAt: new Date().toISOString()
+                    });
+                    // ② メール送信（失敗してもアカウント登録は維持）
+                    try {
+                        const emailRes = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                service_id: EMAILJS_SERVICE_ID,
+                                template_id: EMAILJS_TEMPLATE_ID,
+                                user_id: EMAILJS_PUBLIC_KEY,
+                                template_params: {
+                                    to_name: nameTrimmed,
+                                    to_email: emailTrimmed,
+                                    password: autoPassword,
+                                }
+                            })
+                        });
+                        if (!emailRes.ok) {
+                            const errText = await emailRes.text();
+                            throw new Error(errText);
+                        }
+                        setNewEmail(''); setNewName(''); setNewIsAdmin(false);
+                        setShowAddModal(false);
+                        showMsg(`「${nameTrimmed}」を追加し、ログイン情報をメール送信しました`);
+                    } catch (mailErr) {
+                        const mailErrDetail = mailErr?.text || mailErr?.message || JSON.stringify(mailErr);
+                        setNewEmail(''); setNewName(''); setNewIsAdmin(false);
+                        setShowAddModal(false);
+                        showMsg(`「${nameTrimmed}」を追加しました（メール送信失敗: ${mailErrDetail}）`);
+                    }
+                } catch (err) {
+                    setAddError('追加に失敗しました: ' + (err.message || JSON.stringify(err)));
+                } finally {
+                    setIsAdding(false);
+                }
+            };
+
+            const handleToggleDisable = async (uid, name, currentDisabled) => {
+                await database.ref(`users/${uid}/disabled`).set(!currentDisabled);
+                showMsg(`「${name}」を${!currentDisabled ? '無効' : '有効'}にしました`);
+            };
+
+            const handleDeleteUser = async (uid, name) => {
+                if (!window.confirm(`「${name}」を削除しますか？\nこの操作は取り消せません。`)) return;
+                await database.ref(`users/${uid}`).remove();
+                showMsg(`「${name}」を削除しました`);
+            };
+
+            const handleResendEmail = async (u) => {
+                if (!window.confirm(`「${u.name}」にパスワードリセットメールを送信しますか？`)) return;
+                try {
+                    await auth.sendPasswordResetEmail(u.email);
+                    showMsg(`「${u.name}」にパスワードリセットメールを送信しました`);
+                } catch (err) {
+                    showMsg(`送信失敗: ${err.message}`);
+                }
+            };
+
+            const openEditModal = (u) => {
+                setEditTarget(u);
+                setEditName(u.name);
+                setEditIsAdmin(u.isAdmin || false);
+            };
+
+            const handleEditSave = async (e) => {
+                e.preventDefault();
+                if (!editName.trim()) return;
+                setIsSaving(true);
+                await database.ref(`users/${editTarget.uid}`).update({
+                    name: editName.trim(),
+                    isAdmin: editIsAdmin,
+                });
+                showMsg(`「${editName.trim()}」の情報を更新しました`);
+                setEditTarget(null);
+                setIsSaving(false);
+            };
+
+            return (
+                <div className="flex-1 h-full bg-gray-100 p-6 overflow-y-auto">
+                    <div className="max-w-3xl mx-auto">
+                        <div className="flex items-center justify-between mb-6">
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-800">ユーザー管理</h2>
+                                <p className="text-sm text-gray-500 mt-1">メンバーの追加・無効化（管理者専用）</p>
+                            </div>
+                            <button onClick={() => setShowAddModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition flex items-center gap-2">
+                                <LucideIcon name="user-plus" size={16} /> メンバー追加
+                            </button>
+                        </div>
+
+                        {message && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">{message}</div>}
+
+                        {isLoading ? (
+                            <div className="text-center py-12 text-gray-500">読み込み中...</div>
+                        ) : (
+                            <div className="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-50 border-b border-gray-200">
+                                        <tr>
+                                            <th className="text-left px-4 py-3 font-semibold text-gray-600">氏名</th>
+                                            <th className="text-center px-4 py-3 font-semibold text-gray-600">権限</th>
+                                            <th className="text-center px-4 py-3 font-semibold text-gray-600"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {users.map(u => (
+                                            <tr key={u.uid} className={`border-b border-gray-100 last:border-0 ${u.disabled ? 'opacity-40' : ''}`}>
+                                                <td className="px-4 py-3 font-medium text-gray-800">{u.name}</td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${u.isAdmin ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}>
+                                                        {u.isAdmin ? '管理者' : 'メンバー'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <button onClick={() => openEditModal(u)} className="text-xs px-4 py-1.5 rounded-lg font-bold transition bg-gray-100 text-gray-600 hover:bg-gray-200">
+                                                        詳細
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {users.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-gray-400">ユーザーがいません</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+
+                        {editTarget && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                                    <div className="p-6">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-5">メンバー詳細</h3>
+                                        <form onSubmit={handleEditSave} className="space-y-4">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-500 mb-1">氏名</label>
+                                                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} required className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-500 mb-1">メールアドレス</label>
+                                                <div className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500">{editTarget.email}</div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-500 mb-1">状態</label>
+                                                <div className={`inline-block text-xs font-bold px-3 py-1 rounded-full ${editTarget.disabled ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
+                                                    {editTarget.disabled ? '無効' : '有効'}
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <input type="checkbox" id="editIsAdmin" checked={editIsAdmin} onChange={e => setEditIsAdmin(e.target.checked)} className="w-4 h-4 rounded" />
+                                                <label htmlFor="editIsAdmin" className="text-sm text-gray-700">管理者権限を付与する</label>
+                                            </div>
+                                            <div className="flex gap-2 pt-1">
+                                                <button type="submit" disabled={isSaving} className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition disabled:opacity-50">{isSaving ? '保存中...' : '保存'}</button>
+                                                <button type="button" onClick={() => handleResendEmail(editTarget)} className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-200 transition">再送</button>
+                                                <button type="button" onClick={() => { handleToggleDisable(editTarget.uid, editTarget.name, editTarget.disabled); setEditTarget(null); }} className={`px-4 py-2.5 rounded-lg text-sm font-bold transition ${editTarget.disabled ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-orange-100 text-orange-600 hover:bg-orange-200'}`}>
+                                                    {editTarget.disabled ? '有効化' : '無効化'}
+                                                </button>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button type="button" onClick={() => setEditTarget(null)} className="flex-1 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition">閉じる</button>
+                                                <button type="button" onClick={() => { handleDeleteUser(editTarget.uid, editTarget.name); setEditTarget(null); }} className="px-4 py-2.5 bg-red-100 text-red-600 rounded-lg text-sm font-bold hover:bg-red-200 transition">削除</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {showAddModal && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                                    <div className="p-6">
+                                        <h3 className="text-lg font-bold text-gray-800 mb-4">新しいメンバーを追加</h3>
+                                        <form onSubmit={handleAddUser} className="space-y-4">
+                                            {addError && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">{addError}</div>}
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">名前</label>
+                                                <input type="text" value={newName} onChange={e => setNewName(e.target.value)} required placeholder="例：山田太郎" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+                                                <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required placeholder="例：yamada@g-house.osaka.jp" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                                            </div>
+                                            <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">パスワードは自動生成され、登録メールアドレスに送信されます。</p>
+                                            <div className="flex items-center gap-2">
+                                                <input type="checkbox" id="newIsAdmin" checked={newIsAdmin} onChange={e => setNewIsAdmin(e.target.checked)} className="w-4 h-4 rounded" />
+                                                <label htmlFor="newIsAdmin" className="text-sm text-gray-700">管理者権限を付与する</label>
+                                            </div>
+                                            <div className="flex gap-3 pt-2">
+                                                <button type="button" onClick={() => { setShowAddModal(false); setAddError(''); }} className="flex-1 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition">キャンセル</button>
+                                                <button type="submit" disabled={isAdding} className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition disabled:opacity-50">{isAdding ? '追加中...' : '追加する'}</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        //  顧客カルテ（KarteApp）コンポーネント群
+        // ==========================================
+
+        // --- 初期データ ---
+        const emptyKarteData = () => ({
+          sheetHeader: { belong: '', staffName: '', customerName: '', targetDate: '', rank: '' },
+          basic: {
+            rep: { name: '', age: '', contact: '', address: '', income: '', years: '' },
+            partner: { name: '', age: '', income: '', years: '' },
+            familyMembers: [
+              { role: '父', age: '', job: '', income: '', coLiveNow: '', coLiveFuture: '' },
+              { role: '母', age: '', job: '', income: '', coLiveNow: '', coLiveFuture: '' },
+              { role: '義父', age: '', job: '', income: '', coLiveNow: '', coLiveFuture: '' },
+              { role: '義母', age: '', job: '', income: '', coLiveNow: '', coLiveFuture: '' },
+            ]
+          },
+          general: {
+            life: { station: '', stationTime: '', housingType: '', family: '', homeLoc: '', hobby: '', reason: '', trigger: '', interest: '', currentMaker: '', rent: '', parking: '', otherCost: '' },
+            land: { hasLand: '', areaReason: '', commuteGoal: '', parentsRel: '', stationThought: '', currentHomeReason: '', landBudget: '' },
+            building: { floors: '', rooms: '', extraRooms: '', layoutPoint: '', goals: '', cars: '', garden: '', buildingBudget: '' },
+            money: { husbandIncome: '', wifeIncome: '', downPayment: '', savings: '', existingLoan: '', idealPayment: '', rentGap: '', totalBudget: '', monthlyHope: '', aid: '' },
+            time: { period: '', limit: '', reason: '' },
+            rival: { name: '', pros: '', cons: '' },
+            testClose: { hasTest: '', result: '', complaints: '', nextDetail: '' }
+          },
+          landDetail: {
+            area: { target: '', whyDeep: '' },
+            husband: { dest: '', time: '', method: '', feeling: '', limit: '' },
+            wife: { dest: '', time: '', method: '', feeling: '', limit: '' },
+            station: { importance: '', logic: '', current: '' },
+            parents: { loc: '', importance: '', access: '' },
+            priorities: [
+              { id: 'p1', label: '駅までの距離', note: '' },
+              { id: 'p2', label: 'スーパー、薬局', note: '' },
+              { id: 'p3', label: '小学校までの距離', note: '' },
+              { id: 'p4', label: '病院があるか', note: '' },
+              { id: 'p5', label: '分譲地', note: '' },
+              { id: 'p6', label: '前道の広さ', note: '' },
+              { id: 'p7', label: 'その土地までの道の狭さ', note: '' },
+            ],
+            ng: [
+              { id: 'n1', label: 'ハザード', note: '' },
+              { id: 'n2', label: '近くに川、池 ※虫・臭いなど', note: '' },
+              { id: 'n3', label: '街頭少なく暗い ※娘さんいる場合など', note: '' },
+              { id: 'n4', label: '交通量の多さ', note: '' },
+            ]
+          }
+        });
+
+        const emptyStatus = () => ({
+          customerStatus: '',  // '限定会員' | '建築申込' | '契約'
+          rank: '',            // 'A' | 'B' | 'C' | 'D'
+          contractDate: '',
+          prospectMonth: '',   // '1月' ～ '12月'
+          contractMonth: '',   // '1月' ～ '12月'
+        });
+        const emptyEval = () => ({ hito: '', mono: '', money: '', time: '', rival: '' });
+
+        // --- アイコン ---
+        const KIcMap    = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>;
+        const KIcTrain  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 2C6.5 2 4 5 4 9v8l2 2h12l2-2V9c0-4-2.5-7-8-7zm0 0v4M4 14h16M8 18v2M16 18v2"/></svg>;
+        const KIcHome   = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>;
+        const KIcHeart  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>;
+        const KIcPrint  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>;
+        const KIcUser   = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>;
+        const KIcCoins  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
+        const KIcClock  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>;
+        const KIcFlask  = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3h6m-6 0a1 1 0 00-1 1v6.586a1 1 0 01-.293.707l-5 5C1.854 17.146 3 19 4.707 19h14.586C21 19 22.146 17.146 21.293 16.293l-5-5A1 1 0 0116 10.586V4a1 1 0 00-1-1M9 3h6"/></svg>;
+        const KIcGrid   = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>;
+        const KIcPlus   = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>;
+        const KIcSave   = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>;
+        const KIcBack   = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>;
+        const KIcTrash  = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>;
+        const KIcEdit   = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>;
+        const KIcSettings = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>;
+
+        const KOATSelector = ({ value, onChange, label }) => (
+          <div className="flex items-center gap-2">
+            {label && <span className="text-xs text-slate-600 w-14 flex-shrink-0">{label}</span>}
+            <div className="flex gap-1">
+              {['○', '△', '✕'].map(v => (
+                <button key={v} type="button" onClick={() => onChange(value === v ? '' : v)}
+                  className={`w-7 h-7 text-xs font-bold border transition ${
+                    value === v ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-500 border-slate-300 hover:bg-slate-100'
+                  }`}>{v}</button>
+              ))}
+            </div>
+          </div>
+        );
+
+        // --- 契約済一覧 ---
+        const KContractList = ({ customers, onEdit, onBack }) => {
+          const [search, setSearch] = useState('');
+          const [selectedBranch, setSelectedBranch] = useState('all');
+          const [selectedMonth, setSelectedMonth] = useState('all');
+          const MONTHS = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+          const branchOptions = [...new Set(customers.map(c => c.belong).filter(Boolean))].sort();
+          const monthOptions = MONTHS.filter(m => customers.some(c => c.status?.contractMonth === m));
+          const sorted = customers
+            .filter(c => (c.customerName.includes(search) || c.staffName.includes(search) || (c.belong||'').includes(search))
+              && (selectedBranch === 'all' || c.belong === selectedBranch)
+              && (selectedMonth === 'all' || c.status?.contractMonth === selectedMonth))
+            .sort((a, b) => (b.status?.contractDate || b.updatedAt) < (a.status?.contractDate || a.updatedAt) ? 1 : -1);
+          return (
+            <div className="min-h-screen bg-slate-100 font-sans">
+              <div className="max-w-5xl mx-auto px-4 py-8">
+                <div className="bg-white border border-slate-200 p-5 mb-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <button onClick={onBack} className="flex items-center gap-1.5 text-slate-600 hover:text-slate-800 font-bold text-sm border border-slate-300 px-3 py-2 hover:bg-slate-50 transition"><KIcBack /> 顧客一覧へ</button>
+                      <div><h1 className="text-xl font-black text-slate-800">契約済一覧</h1><p className="text-xs text-slate-500">契約完了したお客様の一覧</p></div>
+                    </div>
+                    <span className="bg-slate-100 text-slate-700 font-black text-sm px-3 py-1.5">{customers.length} 件</span>
+                  </div>
+                </div>
+                <div className="bg-white border border-slate-200 p-4 mb-3 space-y-2">
+                  <input className="w-full p-3 border border-slate-300 text-sm outline-none bg-white" placeholder="お客様名・担当者名・拠点で検索..." value={search} onChange={e => setSearch(e.target.value)} />
+                  <div className="flex gap-2 flex-wrap">
+                    <select className="p-2 border border-slate-300 text-sm outline-none bg-white" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}>
+                      <option value="all">拠点：全て</option>
+                      {branchOptions.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                    <select className="p-2 border border-slate-300 text-sm outline-none bg-white" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}>
+                      <option value="all">契約月：全て</option>
+                      {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mb-3 px-1">{sorted.length} 件</p>
+                {sorted.length === 0 ? (
+                  <div className="bg-white border border-slate-200 p-16 text-center">
+                    <div className="text-5xl mb-4">🏆</div>
+                    <p className="text-slate-500 font-bold">{search ? '検索結果が見つかりません' : '契約済のお客様はまだいません'}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {sorted.map(c => (
+                      <div key={c.id} className="bg-white border border-slate-200 hover:bg-slate-50 transition">
+                        <div className="flex items-center gap-4 p-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-lg font-black text-slate-800">{c.customerName} 様</span>
+                              <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-0.5">{c.belong}</span>
+                              <span className="bg-slate-700 text-white text-xs font-bold px-2 py-0.5">契約済</span>
+                            </div>
+                            <div className="flex items-center gap-4 mt-1 text-sm text-slate-500 flex-wrap">
+                              <span>担当: <span className="font-bold text-slate-700">{c.staffName}</span></span>
+                              {c.status?.contractMonth && (<><span className="text-slate-300">|</span><span>契約月: <span className="font-bold text-slate-700">{c.status.contractMonth}</span></span></>)}
+                              {c.status?.contractDate && (<><span className="text-slate-300">|</span><span>契約日: <span className="font-bold text-slate-700">{c.status.contractDate}</span></span></>)}
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {[['hito','人'],['mono','物'],['money','金'],['time','時'],['rival','敵']].map(([k,l]) => (
+                                <span key={k} className={`text-xs font-bold px-1.5 py-0.5 border ${c.eval?.[k] ? 'border-slate-400 text-slate-700' : 'border-slate-200 text-slate-300'}`}>{l} {c.eval?.[k] || '─'}</span>
+                              ))}
+                            </div>
+                          </div>
+                          <button onClick={() => onEdit(c.id)} className="bg-slate-700 text-white px-4 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-800 transition flex-shrink-0"><KIcEdit /> 開く</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        // --- 共通UIコンポーネント（カルテ専用） ---
+        const KSection = ({ title, icon: Icon, children }) => (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+            <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex items-center gap-2">
+              <span className="text-blue-600"><Icon /></span>
+              <h2 className="text-lg font-bold text-slate-800">{title}</h2>
+            </div>
+            <div className="p-6">{children}</div>
+          </div>
+        );
+
+        const KInputField = ({ label, placeholder = "", value, onChange, type = "text" }) => (
+          <div className="mb-4">
+            <label className="block text-sm font-bold text-slate-700 mb-1">{label}</label>
+            <input type={type} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+          </div>
+        );
+
+        const KTextAreaField = ({ label, placeholder = "", value, onChange }) => (
+          <div className="mb-4">
+            <label className="block text-sm font-bold text-slate-700 mb-1">{label}</label>
+            <textarea className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm min-h-[60px]" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+          </div>
+        );
+
+        const KUnitInput = ({ label, value = '', onChange, units = [''], placeholder = '' }) => {
+          const parseValue = (v) => {
+            if (!v) return { num: '', unit: units[0] || '' };
+            const sorted = [...units].sort((a,b) => b.length - a.length);
+            for (const u of sorted) { if (v.endsWith(u)) return { num: v.slice(0, -u.length), unit: u }; }
+            return { num: v, unit: units[0] || '' };
+          };
+          const init = parseValue(value);
+          const [selectedUnit, setSelectedUnit] = useState(init.unit);
+          const [numStr, setNumStr] = useState(init.num);
+          const handleNumChange = (n) => { setNumStr(n); onChange(n ? n + selectedUnit : ''); };
+          const handleUnitChange = (u) => { setSelectedUnit(u); onChange(numStr ? numStr + u : ''); };
+          return (
+            <div className="mb-4">
+              <label className="block text-sm font-bold text-slate-700 mb-1">{label}</label>
+              <div className="flex items-center gap-1">
+                <input type="number" min="0" className="flex-1 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-sm" placeholder={placeholder || '数値'} value={numStr} onChange={e => handleNumChange(e.target.value)} />
+                {units.length === 1 ? (
+                  <span className="px-3 py-2 bg-slate-100 border border-slate-300 rounded-md text-sm font-bold text-slate-600 whitespace-nowrap">{units[0]}</span>
+                ) : (
+                  <div className="flex gap-1">
+                    {units.map(u => (
+                      <button key={u} type="button" onClick={() => handleUnitChange(u)}
+                        className={`px-2.5 py-2 text-xs font-bold rounded border transition whitespace-nowrap ${selectedUnit === u ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                        {u}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        // --- 新規作成モーダル ---
+        const KNewCustomerModal = ({ onClose, onCreate, branches }) => {
+          const [form, setForm] = useState({ staffName: '', belong: branches?.[0]?.name || '', customerName: '' });
+          const [loading, setLoading] = useState(false);
+          const [error, setError] = useState('');
+          const valid = form.staffName.trim() && form.belong.trim() && form.customerName.trim();
+          const handleCreate = async () => {
+            if (!valid) return;
+            setLoading(true); setError('');
+            const err = await onCreate(form);
+            if (err) setError(err);
+            setLoading(false);
+          };
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+                <div className="bg-slate-800 text-white px-6 py-4">
+                  <h2 className="text-lg font-black">新規顧客カルテ作成</h2>
+                  <p className="text-slate-300 text-xs mt-1">以下の3項目を入力してください</p>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">営業担当者氏名 <span className="text-red-500">*</span></label><input className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例：山田 太郎" value={form.staffName} onChange={e => setForm(f => ({...f, staffName: e.target.value}))} /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">拠点 <span className="text-red-500">*</span></label>
+                    {branches && branches.length > 0 ? (
+                      <select className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white" value={form.belong} onChange={e => setForm(f => ({...f, belong: e.target.value}))}>
+                        <option value="">-- 選択してください --</option>
+                        {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                      </select>
+                    ) : (
+                      <input className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例：大阪営業所" value={form.belong} onChange={e => setForm(f => ({...f, belong: e.target.value}))} />
+                    )}
+                  </div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">お客様名 <span className="text-red-500">*</span></label><input className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例：田中 様" value={form.customerName} onChange={e => setForm(f => ({...f, customerName: e.target.value}))} /></div>
+                  {error && <div className="bg-red-50 border border-red-200 rounded-lg p-3"><p className="text-red-700 text-xs font-bold">エラー: {error}</p></div>}
+                </div>
+                <div className="px-6 pb-6 flex gap-3">
+                  <button onClick={onClose} disabled={loading} className="flex-1 py-3 border border-slate-300 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-50">キャンセル</button>
+                  <button onClick={handleCreate} disabled={!valid || loading} className={`flex-1 py-3 rounded-xl font-bold text-white transition flex items-center justify-center gap-2 ${valid && !loading ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-300 cursor-not-allowed'}`}>
+                    {loading ? '作成中...' : <><KIcPlus /> 作成する</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        // --- 削除確認モーダル ---
+        const KDeleteModal = ({ customerName, onCancel, onConfirm }) => (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+              <p className="text-center font-bold text-slate-700 mb-2">以下のカルテを削除しますか？</p>
+              <p className="text-center text-lg font-black text-red-600 mb-6">「{customerName}」様</p>
+              <div className="flex gap-3">
+                <button onClick={onCancel} className="flex-1 py-3 border border-slate-300 rounded-xl font-bold text-slate-600 hover:bg-slate-50">キャンセル</button>
+                <button onClick={onConfirm} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700">削除する</button>
+              </div>
+            </div>
+          </div>
+        );
+
+        // --- 拠点管理モーダル ---
+        const KBranchManagerModal = ({ branches, onAdd, onDelete, onClose }) => {
+          const [newName, setNewName] = useState('');
+          const [loading, setLoading] = useState(false);
+          const [deleteTarget, setDeleteTarget] = useState(null);
+          const [addError, setAddError] = useState('');
+          const handleAdd = async () => {
+            const name = newName.trim();
+            if (!name) return;
+            setLoading(true); setAddError('');
+            const err = await onAdd(name);
+            if (err) { setAddError(err); } else { setNewName(''); }
+            setLoading(false);
+          };
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4">
+                <div className="px-6 pt-6 pb-4 border-b border-slate-200">
+                  <h2 className="text-lg font-black text-slate-800">拠点の管理</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">拠点の追加・削除ができます</p>
+                </div>
+                <div className="px-6 py-4 border-b border-slate-100">
+                  <div className="flex gap-2">
+                    <input className="flex-1 p-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="新しい拠点名を入力..." value={newName} onChange={e => { setNewName(e.target.value); setAddError(''); }} onKeyDown={e => e.key === 'Enter' && handleAdd()} />
+                    <button onClick={handleAdd} disabled={!newName.trim() || loading} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition">{loading ? '...' : '追加'}</button>
+                  </div>
+                  {addError && <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2"><p className="text-red-600 text-xs font-bold">{addError}</p></div>}
+                </div>
+                <div className="px-6 py-4 max-h-64 overflow-y-auto">
+                  {branches.length === 0 ? <p className="text-center text-slate-400 text-sm py-4">拠点が登録されていません</p> : (
+                    <ul className="space-y-2">
+                      {branches.map(b => (
+                        <li key={b.id} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2.5">
+                          <span className="font-bold text-slate-700 text-sm">{b.name}</span>
+                          {deleteTarget === b.id ? (
+                            <div className="flex gap-2">
+                              <button onClick={() => setDeleteTarget(null)} className="text-xs text-slate-500 font-bold px-2 py-1 border border-slate-300 rounded-lg hover:bg-white">キャンセル</button>
+                              <button onClick={async () => { await onDelete(b.id); setDeleteTarget(null); }} className="text-xs text-white font-bold px-2 py-1 bg-red-600 rounded-lg hover:bg-red-700">削除</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setDeleteTarget(b.id)} className="text-red-400 hover:text-red-600 transition p-1"><KIcTrash /></button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="px-6 pb-6"><button onClick={onClose} className="w-full py-3 border border-slate-300 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition">閉じる</button></div>
+              </div>
+            </div>
+          );
+        };
+
+        // --- 顧客一覧画面 ---
+        const KCustomerList = ({ customers, onNew, onEdit, onDelete, dbLoading, branches, onAddBranch, onDeleteBranch, contractCount, onGoContracts }) => {
+          const [search, setSearch] = useState('');
+          const [deleteTarget, setDeleteTarget] = useState(null);
+          const [selectedBranch, setSelectedBranch] = useState('all');
+          const [showBranchMgr, setShowBranchMgr] = useState(false);
+          const [selectedStaff, setSelectedStaff] = useState('all');
+          const [selectedStatus, setSelectedStatus] = useState('all');
+          const [selectedRank, setSelectedRank] = useState('all');
+          const [selectedMonth, setSelectedMonth] = useState('all');
+          const staffOptions = [...new Set(customers.map(c => c.staffName).filter(Boolean))].sort();
+          const filtered = customers.filter(c => {
+            const matchSearch = c.customerName.includes(search) || c.staffName.includes(search) || c.belong.includes(search);
+            const matchBranch = selectedBranch === 'all' || c.belong === selectedBranch;
+            const matchStaff = selectedStaff === 'all' || c.staffName === selectedStaff;
+            const matchStatus = selectedStatus === 'all' || c.status?.customerStatus === selectedStatus;
+            const matchRank = selectedRank === 'all' || c.status?.rank === selectedRank;
+            const matchMonth = selectedMonth === 'all' || c.status?.prospectMonth === selectedMonth;
+            return matchSearch && matchBranch && matchStaff && matchStatus && matchRank && matchMonth;
+          });
+          return (
+            <div className="min-h-screen bg-slate-100 font-sans">
+              {deleteTarget && <KDeleteModal customerName={deleteTarget.customerName} onCancel={() => setDeleteTarget(null)} onConfirm={() => { onDelete(deleteTarget.id); setDeleteTarget(null); }} />}
+              {showBranchMgr && <KBranchManagerModal branches={branches} onAdd={onAddBranch} onDelete={onDeleteBranch} onClose={() => setShowBranchMgr(false)} />}
+              <div className="max-w-5xl mx-auto px-4 py-8">
+                <div className="bg-white border border-slate-200 p-5 mb-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-slate-500"><KIcGrid /></span>
+                      <div><h1 className="text-2xl font-black text-slate-800 tracking-tight">顧客カルテ統合システム</h1><p className="text-sm text-slate-500 mt-0.5">G-House 営業部専用ツール</p></div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={onGoContracts} className="border border-slate-400 text-slate-600 bg-white px-4 py-2 font-bold text-sm flex items-center gap-2 hover:bg-slate-50 transition">
+                        契約済一覧{contractCount > 0 && <span className="bg-slate-600 text-white text-xs font-bold px-1.5 py-0.5">{contractCount}</span>}
+                      </button>
+                      <button onClick={onNew} className="bg-slate-700 text-white px-5 py-2 font-bold text-sm flex items-center gap-2 hover:bg-slate-800 transition"><KIcPlus /> 新規カルテ作成</button>
+                    </div>
+                  </div>
+                </div>
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex gap-2 flex-wrap flex-1">
+                    <button onClick={() => setSelectedBranch('all')} className={`px-4 py-2 text-sm font-bold transition border ${selectedBranch === 'all' ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>全て ({customers.length})</button>
+                    {branches.map(b => {
+                      const count = customers.filter(c => c.belong === b.name).length;
+                      return <button key={b.id} onClick={() => setSelectedBranch(b.name)} className={`px-4 py-2 text-sm font-bold transition border ${selectedBranch === b.name ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{b.name} ({count})</button>;
+                    })}
+                  </div>
+                  <button onClick={() => setShowBranchMgr(true)} className="p-2 border border-slate-300 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition flex-shrink-0" title="拠点を管理"><KIcSettings /></button>
+                </div>
+                <div className="bg-white border border-slate-200 p-4 mb-4">
+                  <input className="w-full p-3 border border-slate-200 text-sm outline-none bg-slate-50 mb-3" placeholder="お客様名・担当者名で検索..." value={search} onChange={e => setSearch(e.target.value)} />
+                  <div className="flex gap-3 flex-wrap items-center">
+                    <span className="text-xs font-bold text-slate-400 flex-shrink-0">フィルター</span>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs text-slate-500 font-bold whitespace-nowrap">担当</label>
+                      <select value={selectedStaff} onChange={e => setSelectedStaff(e.target.value)} className="text-sm border border-slate-300 px-2 py-1.5 outline-none bg-white">
+                        <option value="all">全員</option>
+                        {staffOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs text-slate-500 font-bold whitespace-nowrap">状態</label>
+                      <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} className="text-sm border border-slate-300 px-2 py-1.5 outline-none bg-white">
+                        <option value="all">全て</option>
+                        <option value="限定会員">限定会員</option>
+                        <option value="建築申込">建築申込</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs text-slate-500 font-bold whitespace-nowrap">ランク</label>
+                      <select value={selectedRank} onChange={e => setSelectedRank(e.target.value)} className="text-sm border border-slate-300 px-2 py-1.5 outline-none bg-white">
+                        <option value="all">全て</option>
+                        <option value="A">ランクA</option>
+                        <option value="B">ランクB</option>
+                        <option value="C">ランクC</option>
+                        <option value="D">ランクD</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs text-slate-500 font-bold whitespace-nowrap">見込み月</label>
+                      <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="text-sm border border-slate-300 px-2 py-1.5 outline-none bg-white">
+                        <option value="all">全て</option>
+                        {['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'].map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    {(selectedStaff !== 'all' || selectedStatus !== 'all' || selectedRank !== 'all' || selectedMonth !== 'all') && (
+                      <button onClick={() => { setSelectedStaff('all'); setSelectedStatus('all'); setSelectedRank('all'); setSelectedMonth('all'); }} className="text-xs text-slate-600 font-bold hover:underline">クリア</button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mb-3 px-1">{dbLoading ? '読み込み中...' : `${filtered.length} 件のカルテ`}</p>
+                {filtered.length === 0 ? (
+                  <div className="bg-white border border-slate-200 p-16 text-center">
+                    <div className="text-5xl mb-4">📋</div>
+                    <p className="text-slate-500 font-bold">{(search || selectedBranch !== 'all') ? '検索結果が見つかりません' : 'カルテがまだありません'}</p>
+                    {!search && selectedBranch === 'all' && <p className="text-slate-400 text-sm mt-2">「新規カルテ作成」ボタンから始めてください</p>}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filtered.map(c => (
+                      <div key={c.id} className="bg-white border border-slate-200 hover:bg-slate-50 transition">
+                        <div className="flex items-center gap-4 p-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-lg font-black text-slate-800">{c.customerName} 様</span>
+                              <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-0.5">{c.belong}</span>
+                              {c.status?.customerStatus && (
+                                <span className="text-xs font-bold px-2 py-0.5 bg-slate-100 text-slate-700">{c.status.customerStatus}</span>
+                              )}
+                              {c.status?.rank && (
+                                <span className="text-xs font-bold px-2 py-0.5 border border-slate-400 text-slate-700">{c.status.rank}ランク</span>
+                              )}
+                              {c.status?.prospectMonth && (
+                                <span className="text-xs font-bold px-2 py-0.5 border border-slate-300 text-slate-600">見込み {c.status.prospectMonth}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-4 mt-1 text-sm text-slate-500 flex-wrap">
+                              <span>担当: <span className="font-bold text-slate-700">{c.staffName}</span></span>
+                              <span className="text-slate-300">|</span>
+                              <span>作成: {new Date(c.createdAt).toLocaleDateString('ja-JP')}</span>
+                              <span className="text-slate-300">|</span>
+                              <span>更新: {new Date(c.updatedAt).toLocaleDateString('ja-JP')} {new Date(c.updatedAt).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {[['hito','人'],['mono','物'],['money','金'],['time','時'],['rival','敵']].map(([k,l]) => {
+                                const val = c.eval?.[k] || '';
+                                if (!val) return null;
+                                return <span key={k} className="text-xs font-bold px-1.5 py-0.5 border border-slate-300 text-slate-600">{l}{val}</span>;
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0 self-start mt-1">
+                            <button onClick={() => onEdit(c.id)} className="bg-slate-700 text-white px-4 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-800 transition"><KIcEdit /> 開く</button>
+                            <button onClick={() => setDeleteTarget(c)} className="border border-slate-300 text-slate-500 px-3 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-100 transition"><KIcTrash /></button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        // --- カルテ編集画面 ---
+        const KKarteEditor = ({ customer, onBack, onSave, onUpdateInfo, onUpdateStatus }) => {
+          const [activeTab, setActiveTab] = useState('flow');
+          const [data, setData] = useState(customer.karteData || emptyKarteData());
+          const [saveMsg, setSaveMsg] = useState('');
+          const [infoEdit, setInfoEdit] = useState(false);
+          const [infoForm, setInfoForm] = useState({ staffName: customer.staffName, belong: customer.belong, customerName: customer.customerName });
+          const [infoSaving, setInfoSaving] = useState(false);
+          const [infoErr, setInfoErr] = useState('');
+          const [statusData, setStatusData] = useState(customer.status || emptyStatus());
+          const [evalData, setEvalData] = useState(customer.eval || emptyEval());
+
+          const handleSaveInfo = async () => {
+            if (!infoForm.staffName.trim() || !infoForm.belong.trim() || !infoForm.customerName.trim()) return;
+            setInfoSaving(true); setInfoErr('');
+            const err = await onUpdateInfo(customer.id, infoForm);
+            if (err) setInfoErr(err); else setInfoEdit(false);
+            setInfoSaving(false);
+          };
+          const cancelInfoEdit = () => { setInfoForm({ staffName: customer.staffName, belong: customer.belong, customerName: customer.customerName }); setInfoErr(''); setInfoEdit(false); };
+          const updateNested = (tab, cat, field, val) => setData(prev => ({ ...prev, [tab]: { ...prev[tab], [cat]: { ...prev[tab][cat], [field]: val } } }));
+          const updateArrayItem = (tab, arrayName, index, field, val) => { const arr = [...data[tab][arrayName]]; arr[index] = { ...arr[index], [field]: val }; setData(prev => ({ ...prev, [tab]: { ...prev[tab], [arrayName]: arr } })); };
+          const updateList = (tab, listName, id, val) => setData(prev => ({ ...prev, [tab]: { ...prev[tab], [listName]: prev[tab][listName].map(item => item.id === id ? { ...item, note: val } : item) } }));
+          const handleSave = async () => {
+            setSaveMsg('保存中...');
+            const errKarte = await onSave(customer.id, data);
+            const errStatus = await onUpdateStatus(customer.id, statusData, evalData);
+            const err = errKarte || errStatus;
+            if (err) {
+              setSaveMsg('保存失敗 ❌ ' + err);
+              alert('保存に失敗しました: ' + err + '\n\nFirebaseのルールやネットワーク接続を確認してください。');
+            } else {
+              setSaveMsg('保存しました ✅');
+            }
+            setTimeout(() => setSaveMsg(''), 5000);
+          };
+          const th = "border border-slate-300 bg-slate-100 p-1 text-[10px] font-bold text-center";
+          const td = "border border-slate-300 p-1 text-[10px] min-h-[1.5rem]";
+          const wu = (v, unit) => { if (!v) return ''; const known = ['万円/月', '万円', '歳', '年', '時間', '分']; if (known.some(u => String(v).endsWith(u))) return v; return v + unit; };
+          const tabs = [
+            { key: 'flow', label: '商談フロー', color: 'indigo' },
+            { key: 'summary', label: 'カルテ一覧', color: 'emerald' },
+            { key: 'basic', label: '基本情報', color: 'blue' },
+            { key: 'general', label: '総合ヒアリング', color: 'blue' },
+            { key: 'land', label: '土地エリア精査', color: 'blue' },
+          ];
+          const tabColor = { indigo: 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50', emerald: 'text-emerald-600 border-b-2 border-emerald-600 bg-emerald-50/50', blue: 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/30' };
+
+          return (
+            <div className="min-h-screen bg-slate-100 py-4 px-4 font-sans karte-editor-outer">
+              <div className="max-w-5xl mx-auto karte-editor-inner">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-4 no-print">
+                  <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <button onClick={onBack} className="flex items-center gap-1.5 text-slate-600 hover:text-slate-800 font-bold text-sm border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-50 transition"><KIcBack /> 一覧へ戻る</button>
+                      {infoEdit ? (
+                        <div className="space-y-2">
+                          <div className="flex gap-2 flex-wrap items-center">
+                            <input value={infoForm.customerName} onChange={e => setInfoForm(p => ({...p, customerName: e.target.value}))} className="border border-slate-300 rounded-lg px-2 py-1 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 w-40" placeholder="お客様名" />
+                            <input value={infoForm.belong} onChange={e => setInfoForm(p => ({...p, belong: e.target.value}))} className="border border-slate-300 rounded-lg px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500 w-28" placeholder="拠点" />
+                            <input value={infoForm.staffName} onChange={e => setInfoForm(p => ({...p, staffName: e.target.value}))} className="border border-slate-300 rounded-lg px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500 w-28" placeholder="担当者名" />
+                          </div>
+                          {infoErr && <p className="text-red-500 text-xs">{infoErr}</p>}
+                          <div className="flex gap-2">
+                            <button onClick={handleSaveInfo} disabled={infoSaving} className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition">{infoSaving ? '保存中...' : '保存する'}</button>
+                            <button onClick={cancelInfoEdit} className="border border-slate-300 px-3 py-1 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 transition">キャンセル</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-xs text-slate-400">{customer.belong}　担当: {customer.staffName}</p>
+                          <div className="flex items-center gap-1.5">
+                            <h1 className="text-xl font-black text-slate-800">{customer.customerName} 様のカルテ</h1>
+                            <button onClick={() => { setInfoForm({ staffName: customer.staffName, belong: customer.belong, customerName: customer.customerName }); setInfoEdit(true); }} className="text-slate-400 hover:text-slate-600 transition p-1" title="基本情報を編集"><KIcEdit /></button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {saveMsg && <span className="text-green-600 font-bold text-sm bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">{saveMsg}</span>}
+                      <button onClick={handleSave} className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-emerald-700 transition shadow-md"><KIcSave /> 一時保存</button>
+                      <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-slate-700 transition shadow-md"><KIcPrint /> 印刷</button>
+                    </div>
+                  </div>
+                  <div className="flex border-t border-slate-100 overflow-x-auto bg-slate-50/50">
+                    {tabs.map(({ key, label, color }) => (
+                      <button key={key} onClick={() => setActiveTab(key)} className={`flex-1 min-w-[100px] py-3 text-xs font-bold ${activeTab === key ? tabColor[color] : 'text-slate-500 hover:text-slate-700'}`}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 状態・評価パネル */}
+                <div className="bg-white border border-slate-300 p-4 mb-4 no-print">
+                  <div className="mb-3">
+                    <h3 className="font-bold text-slate-700 text-sm">お客様状態・評価</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">上部の「一時保存」ボタンで保存されます</p>
+                  </div>
+                  <div className="flex gap-6 flex-wrap divide-x divide-slate-200">
+                    <div className="space-y-3 flex-1 min-w-[220px]">
+                      <p className="text-xs font-bold text-slate-500 pb-1 border-b border-slate-200">【物】状態・ランク・見込み月</p>
+                      <div>
+                        <p className="text-xs text-slate-400 mb-1">お客様の状態</p>
+                        <div className="flex gap-1 flex-wrap">
+                          {['限定会員', '建築申込', '契約'].map(s => (
+                            <button key={s} type="button"
+                              onClick={() => setStatusData(p => ({...p, customerStatus: p.customerStatus===s?'':s, contractDate: s!=='契約'?'':p.contractDate}))}
+                              className={`px-3 py-1 text-sm border transition ${
+                                statusData.customerStatus === s ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                              }`}>{s}</button>
+                          ))}
+                        </div>
+                      </div>
+                      {statusData.customerStatus !== '契約' && (
+                        <>
+                          <div>
+                            <p className="text-xs text-slate-400 mb-1">ランク</p>
+                            <div className="flex gap-1">
+                              {['A','B','C','D'].map(r => (
+                                <button key={r} type="button" onClick={() => setStatusData(p => ({...p, rank: p.rank===r?'':r}))}
+                                  className={`w-9 h-9 text-sm border font-bold transition ${statusData.rank===r?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{r}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-400 mb-1">見込み月</p>
+                            <div className="flex gap-1 flex-wrap">
+                              {['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'].map(m => (
+                                <button key={m} type="button" onClick={() => setStatusData(p => ({...p, prospectMonth: p.prospectMonth===m?'':m}))}
+                                  className={`px-2 py-1 text-xs border font-bold transition ${statusData.prospectMonth===m?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{m}</button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      {statusData.customerStatus === '契約' && (
+                        <div className="space-y-2">
+                          <div>
+                            <p className="text-xs text-slate-400 mb-1">契約月</p>
+                            <div className="flex gap-1 flex-wrap">
+                              {['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'].map(m => (
+                                <button key={m} type="button" onClick={() => setStatusData(p => ({...p, contractMonth: p.contractMonth===m?'':m}))}
+                                  className={`px-2 py-1 text-xs border font-bold transition ${statusData.contractMonth===m?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{m}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-400 mb-1">契約日</p>
+                            <input type="date" value={statusData.contractDate || ''} onChange={e => setStatusData(p => ({...p, contractDate: e.target.value}))}
+                              className="border border-slate-300 px-2 py-1 text-sm outline-none" />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="pl-6 space-y-2 flex-1 min-w-[180px]">
+                      <p className="text-xs font-bold text-slate-500 pb-1 border-b border-slate-200">【人】人・物・金・時・敵</p>
+                      <KOATSelector label="人" value={evalData.hito} onChange={v => setEvalData(p => ({...p, hito: v}))} />
+                      <KOATSelector label="物" value={evalData.mono} onChange={v => setEvalData(p => ({...p, mono: v}))} />
+                      <KOATSelector label="金" value={evalData.money} onChange={v => setEvalData(p => ({...p, money: v}))} />
+                      <KOATSelector label="時" value={evalData.time} onChange={v => setEvalData(p => ({...p, time: v}))} />
+                      <KOATSelector label="敵" value={evalData.rival} onChange={v => setEvalData(p => ({...p, rival: v}))} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 商談フロー */}
+                {activeTab === 'flow' && (
+                  <div className="space-y-4">
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-slate-700 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-slate-700 font-black text-xs px-2 py-0.5 rounded">STEP 1</span><span className="font-black text-base">ヒアリングフェーズ</span><span className="text-slate-300 text-xs ml-2">― 各タブに沿って順番に聞く ―</span></div>
+                      <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {["① 現在のお住まい（エリア・賃貸 or 持家）","② 将来的にご入居予定の人数","③ お家づくりを考え始めたきっかけ","④ Gハウスを知っていただいたきっかけ","⑤ お土地について","⑥ お家について","⑦ ご入居予定時期"].map((t, i) => (
+                          <div key={i} className="flex items-center gap-3 bg-slate-50 rounded-lg px-4 py-3 border border-slate-200"><span className="w-7 h-7 rounded-full bg-slate-600 text-white flex items-center justify-center font-black text-xs flex-shrink-0">{i+1}</span><span className="font-bold text-slate-700 text-sm">{t}</span></div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="bg-indigo-700 text-white rounded-xl shadow-lg overflow-hidden">
+                      <div className="px-6 py-3 bg-indigo-900 flex items-center gap-2"><span className="bg-white text-indigo-900 font-black text-xs px-2 py-0.5 rounded">STEP 2</span><span className="font-black text-base">提案への入り口　― まずこれを聞く ―</span></div>
+                      <div className="p-6">
+                        <div className="text-center bg-white/10 rounded-xl p-5 mb-3"><p className="text-xl font-black tracking-wide leading-relaxed">「土地・建物、すべて理想が叶うとしたら</p><p className="text-2xl font-black text-yellow-300 mt-1">月々いくらまで出せますか？」</p></div>
+                        <div className="bg-red-500/80 rounded-lg px-4 py-2 text-sm font-bold text-center">⚠️ 「いくらが良いですか？」はNG ― 必ず <span className="underline">出す価値のある金額</span> を聞き出す</div>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-blue-600 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-blue-600 font-black text-xs px-2 py-0.5 rounded">STEP 3</span><span className="font-black text-base">図面提出 ＋ 資金試算</span></div>
+                      <div className="p-5 space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4"><p className="font-black text-blue-800 mb-2">📐 建物参考図面の提出</p><ul className="text-sm text-blue-700 space-y-1"><li>・ 理想に近い間取りを提示</li><li>・ ボリューム感を一緒に確認・共有</li><li>・ 坪数をもとに建物で資金計画試算</li></ul></div>
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-4"><p className="font-black text-green-800 mb-2">🗺️ 土地予算の試算</p><ul className="text-sm text-green-700 space-y-1"><li>・ 希望エリア ＋ 駅距離 ＋ 坪数をもとに</li><li>・ 土地予算を取って試算する</li><li>・ トータルの月々支払いを算出</li></ul></div>
+                        </div>
+                        <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3 text-center"><p className="font-black text-yellow-800 text-sm">「この金額を見て、どう思いますか？」← 必ず反応を確認する</p></div>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-emerald-600 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-emerald-600 font-black text-xs px-2 py-0.5 rounded">STEP 4</span><span className="font-black text-base">月々に落とし込む工夫の話</span></div>
+                      <div className="p-5">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">{['💰 頭金', '📅 ローン年数', '🎁 ボーナス払い', '🤝 援助'].map((item, i) => (<div key={i} className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center"><p className="font-black text-emerald-800 text-sm">{item}</p></div>))}</div>
+                        <div className="bg-slate-800 text-white rounded-lg p-4 mb-3"><p className="font-black text-yellow-300 mb-2">🔥 光熱費逆転現象を必ず見せる</p><p className="text-sm leading-relaxed">ローコストで <span className="text-yellow-300 font-bold">500〜1,000万円安く</span> ても、光熱費が <span className="text-red-400 font-bold">月2〜3万円</span> かかると…<br/>→ <span className="text-white font-black">35年で840〜1,260万円の差</span> が生まれ、<span className="text-yellow-300 font-bold">逆転する！</span></p></div>
+                        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center"><p className="font-black text-indigo-800">「Gハウスの方が <span className="text-indigo-600">家の質が高く</span>、月々の支払いも <span className="text-indigo-600">楽になる</span>」</p></div>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-orange-500 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-orange-500 font-black text-xs px-2 py-0.5 rounded">STEP 5</span><span className="font-black text-base">キャンペーン提示 ＋ 選択肢の広がりを見せる</span></div>
+                      <div className="p-5 space-y-3">
+                        <div className="bg-red-50 border-l-4 border-red-500 rounded-r-lg p-3"><p className="font-black text-red-700 text-sm">⚠️ 間違ってもすぐにキャンペーンを提示しない</p><p className="text-xs text-red-600 mt-1">Gハウスの価値を理解させた後で初めて提示する</p></div>
+                        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                          <p className="font-black text-orange-800 mb-2">例）500万円下げた結果を見せる</p>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">{[['土地予算に充当','200〜300万円'],['建物OPに充当','100万円'],['月々を下げる','様々な選択肢']].map(([t,s],i) => (<div key={i} className="bg-white border border-orange-200 rounded p-2 text-center text-sm"><p className="font-bold text-orange-700">{t}</p><p className="text-xs text-slate-500">{s}</p></div>))}</div>
+                        </div>
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-3"><p className="font-black text-green-800 text-sm">✅ 土地予算を少し増やして → 次回 いえプロ へバトンを渡す</p></div>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-slate-600 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-slate-600 font-black text-xs px-2 py-0.5 rounded">STEP 6</span><span className="font-black text-base">予算感が厳しい場合の対応</span></div>
+                      <div className="p-5">
+                        <p className="text-sm text-slate-600 mb-3 font-bold">「現状の予算だと、今のエリアは厳しい状態です。例えばこれはどうですか？」</p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">{[['🗾','土地エリアを変える'],['🏠','商品を変える'],['📏','建物坪数を工夫'],['💹','予算を上げる'],['💰','頭金を出す'],['🤝','援助を使う']].map(([ic,lb],i) => (<div key={i} className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-center gap-2"><span className="text-lg">{ic}</span><span className="text-sm font-bold text-slate-700">{lb}</span></div>))}</div>
+                        <div className="space-y-2">
+                          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800"><span className="font-black">全部譲れない人は追わない。</span><br/>「また一度ご検討いただき、変化があれば連絡ください 😊」でお別れ</div>
+                          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-sm text-indigo-800"><p className="font-black mb-1">整理すべき3択を明確に伝える：</p><p>🏠 <span className="font-bold">いい家</span> に住みたいのか？　🗾 <span className="font-bold">いい土地</span> に住みたいのか？</p><p className="mt-1">どちらも譲れないなら → <span className="font-black text-indigo-700">予算を上げるだけ</span></p></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-purple-600 text-white px-6 py-3 flex items-center gap-2"><span className="bg-white text-purple-600 font-black text-xs px-2 py-0.5 rounded">STEP 7</span><span className="font-black text-base">次回アポイントへ ― スケジュール全体像を共有</span></div>
+                      <div className="p-5">
+                        <div className="space-y-2">
+                          {[{icon:'📖',title:'スタイルブックをもとにオプション金額の整理'},{icon:'🗾',title:'希望エリアの土地物件について共有'},{icon:'🏦',title:'事前審査の依頼（できる人はイオン銀行などで）',note:'次回までにURLのみ送付してあげる'}].map((item, i) => (
+                            <div key={i} className="bg-purple-50 border border-purple-200 rounded-lg p-3"><p className="font-black text-purple-800 text-sm">{item.icon} {item.title}</p>{item.note && <p className="text-xs text-purple-600 mt-1">{item.note}</p>}</div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* カルテ一覧（印刷用） */}
+                {activeTab === 'summary' && (
+                  <div className="karte-print-area bg-white p-6 shadow-2xl rounded-sm border border-slate-300 overflow-auto">
+                    <div className="karte-inner text-[11px] border border-black">
+                      <div className="flex justify-between items-center bg-slate-800 text-white px-4 py-2">
+                        <div className="font-black text-base tracking-widest">🧭 お客様情報カルテ　ver2.3</div>
+                        <div className="text-[10px] text-right space-y-0.5">
+                          <div>所属: <span className="font-bold">{customer.belong}</span>　担当: <span className="font-bold">{customer.staffName}</span></div>
+                          <div>ランク: <span className="font-bold">{customer.status?.rank || '―'}</span>　見込み月: <span className="font-bold">{customer.status?.prospectMonth || '―'}</span>　記入日: {new Date().toLocaleDateString()}</div>
+                        </div>
+                      </div>
+                      <div className="bg-indigo-50 px-4 py-2 border-b border-black text-center"><span className="text-lg font-black text-slate-800 tracking-widest">{customer.customerName || '　　　　'} 様</span></div>
+                      <div className="border-b border-black"><div className={`${th} bg-blue-700 text-white text-xs py-1`}>A. 基本情報</div></div>
+                      <table className="w-full border-collapse border-b border-black">
+                        <thead><tr><th className={`${th} w-16`}></th><th className={th}>氏名（フリガナ）</th><th className={th}>年齢（歳）</th><th className={th}>連絡先</th><th className={th}>年収（万円）</th><th className={th}>勤続年数（年）</th></tr></thead>
+                        <tbody>
+                          <tr><td className={th}>本人</td><td className={td}>{data.basic.rep.name}</td><td className={td}>{wu(data.basic.rep.age,'歳')}</td><td className={td}>{data.basic.rep.contact}</td><td className={td}>{wu(data.basic.rep.income,'万円')}</td><td className={td}>{wu(data.basic.rep.years,'年')}</td></tr>
+                          <tr><td className={th}>配偶者</td><td className={td}>{data.basic.partner.name}</td><td className={td}>{wu(data.basic.partner.age,'歳')}</td><td className={td}>―</td><td className={td}>{wu(data.basic.partner.income,'万円')}</td><td className={td}>{wu(data.basic.partner.years,'年')}</td></tr>
+                        </tbody>
+                      </table>
+                      <div className="grid grid-cols-12 border-b border-black"><div className={`${th} col-span-2`}>現住所</div><div className={`${td} col-span-10`}>{data.basic.rep.address}</div></div>
+                      <div className="border-b border-black">
+                        <div className={`${th} bg-slate-200`}>家族構成（父母・義父母）</div>
+                        <table className="w-full border-collapse">
+                          <thead><tr><th className={th}>続柄</th><th className={th}>年齢</th><th className={th}>職業</th><th className={th}>年収</th><th className={th}>現在同居</th><th className={th}>将来同居</th></tr></thead>
+                          <tbody>{data.basic.familyMembers.map((m, i) => (<tr key={i}><td className={`${th} font-bold`}>{m.role}</td><td className={td}>{wu(m.age,'歳')}</td><td className={td}>{m.job}</td><td className={td}>{wu(m.income,'万円')}</td><td className={td}>{m.coLiveNow}</td><td className={td}>{m.coLiveFuture}</td></tr>))}</tbody>
+                        </table>
+                      </div>
+                      <div className="border-b border-black karte-page-break"><div className={`${th} bg-blue-700 text-white text-xs py-1`}>B. 総合ヒアリング</div></div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【生活情報】</div>
+                        <div className={`${th} col-span-2`}>住居形態</div><div className={`${td} col-span-4`}>{data.general.life.housingType}</div>
+                        <div className={`${th} col-span-2`}>最寄り駅（時間）</div><div className={`${td} col-span-4`}>{data.general.life.station}{data.general.life.stationTime ? '　' + wu(data.general.life.stationTime,'分') : ''}</div>
+                        <div className={`${th} col-span-2`}>家賃</div><div className={`${td} col-span-2`}>{wu(data.general.life.rent,'万円/月')}</div>
+                        <div className={`${th} col-span-2`}>駐車場</div><div className={`${td} col-span-2`}>{wu(data.general.life.parking,'万円/月')}</div>
+                        <div className={`${th} col-span-2`}>その他費用</div><div className={`${td} col-span-2`}>{wu(data.general.life.otherCost,'万円/月')}</div>
+                        <div className={`${th} col-span-2`}>家族構成</div><div className={`${td} col-span-4`}>{data.general.life.family}</div>
+                        <div className={`${th} col-span-2`}>実家場所</div><div className={`${td} col-span-4`}>{data.general.life.homeLoc}</div>
+                        <div className={`${th} col-span-2`}>趣味</div><div className={`${td} col-span-10`}>{data.general.life.hobby}</div>
+                        <div className={`${th} col-span-2 h-12`}>家づくりの理由・きっかけ</div><div className={`${td} col-span-10 h-12 whitespace-pre-wrap`}>{data.general.life.reason}</div>
+                        <div className={`${th} col-span-2 h-10`}>Gハウスを知ったきっかけ</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.life.trigger}</div>
+                        <div className={`${th} col-span-2 h-10`}>Gハウスへの関心事</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.life.interest}</div>
+                        <div className={`${th} col-span-2 h-10`}>検討メーカー・印象</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.life.currentMaker}</div>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【土地】</div>
+                        <div className={`${th} col-span-2`}>土地探しの有無</div><div className={`${td} col-span-4`}>{data.general.land.hasLand}</div>
+                        <div className={`${th} col-span-2`}>希望エリアと理由</div><div className={`${td} col-span-4`}>{data.general.land.areaReason}</div>
+                        <div className={`${th} col-span-2`}>通勤先・方法・距離感</div><div className={`${td} col-span-4`}>{data.general.land.commuteGoal}</div>
+                        <div className={`${th} col-span-2`}>実家との距離・関係</div><div className={`${td} col-span-4`}>{data.general.land.parentsRel}</div>
+                        <div className={`${th} col-span-2`}>駅距離への考え</div><div className={`${td} col-span-4`}>{data.general.land.stationThought}</div>
+                        <div className={`${th} col-span-2`}>今の住まいを選んだ理由</div><div className={`${td} col-span-4`}>{data.general.land.currentHomeReason}</div>
+                        <div className={`${th} col-span-2`}>土地予算</div><div className={`${td} col-span-10`}>{wu(data.general.land.landBudget,'万円')}</div>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【建物】</div>
+                        <div className={`${th} col-span-2`}>階数</div><div className={`${td} col-span-2`}>{data.general.building.floors}</div>
+                        <div className={`${th} col-span-2`}>部屋数・用途</div><div className={`${td} col-span-6`}>{data.general.building.rooms}</div>
+                        <div className={`${th} col-span-2 h-10`}>追加希望部屋と理由</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.building.extraRooms}</div>
+                        <div className={`${th} col-span-2 h-10`}>間取りのこだわり</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.building.layoutPoint}</div>
+                        <div className={`${th} col-span-2 h-10`}>やりたいこと・理由</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.building.goals}</div>
+                        <div className={`${th} col-span-2`}>車台数・優先度</div><div className={`${td} col-span-4`}>{data.general.building.cars}</div>
+                        <div className={`${th} col-span-2`}>庭の希望</div><div className={`${td} col-span-4`}>{data.general.building.garden}</div>
+                        <div className={`${th} col-span-2`}>建物予算</div><div className={`${td} col-span-10`}>{wu(data.general.building.buildingBudget,'万円')}</div>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【資金計画】</div>
+                        <div className={`${th} col-span-2`}>ご主人年収</div><div className={`${td} col-span-2`}>{wu(data.general.money.husbandIncome,'万円')}</div>
+                        <div className={`${th} col-span-2`}>奥様年収</div><div className={`${td} col-span-2`}>{wu(data.general.money.wifeIncome,'万円')}</div>
+                        <div className={`${th} col-span-2`}>総予算</div><div className={`${td} col-span-2`}>{wu(data.general.money.totalBudget,'万円')}</div>
+                        <div className={`${th} col-span-2`}>頭金</div><div className={`${td} col-span-2`}>{wu(data.general.money.downPayment,'万円')}</div>
+                        <div className={`${th} col-span-2`}>貯金額</div><div className={`${td} col-span-2`}>{wu(data.general.money.savings,'万円')}</div>
+                        <div className={`${th} col-span-2`}>援助金</div><div className={`${td} col-span-2`}>{wu(data.general.money.aid,'万円')}</div>
+                        <div className={`${th} col-span-2`}>月々希望額</div><div className={`${td} col-span-10`}>{wu(data.general.money.monthlyHope,'万円/月')}</div>
+                        <div className={`${th} col-span-2 h-10`}>既存借入</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.money.existingLoan}</div>
+                        <div className={`${th} col-span-2 h-10`}>理想の月々支払いと理由</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.money.idealPayment}</div>
+                        <div className={`${th} col-span-2 h-10`}>家賃との差への考え</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.money.rentGap}</div>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【入居時期 / 競合】</div>
+                        <div className={`${th} col-span-2 h-10`}>希望入居時期・理由</div><div className={`${td} col-span-4 h-10 whitespace-pre-wrap`}>{data.general.time.period}</div>
+                        <div className={`${th} col-span-2`}>入居リミット</div><div className={`${td} col-span-4`}>{data.general.time.limit}</div>
+                        <div className={`${th} col-span-2`}>検討他社名</div><div className={`${td} col-span-10`}>{data.general.rival.name}</div>
+                        <div className={`${th} col-span-2 h-10`}>他社の気に入っている点</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.rival.pros}</div>
+                        <div className={`${th} col-span-2 h-10`}>他社への不満点</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.rival.cons}</div>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>【テスクロ】</div>
+                        <div className={`${th} col-span-2`}>有無</div><div className={`${td} col-span-10`}>{data.general.testClose.hasTest}</div>
+                        <div className={`${th} col-span-2 h-10`}>テスクロ結果</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.testClose.result}</div>
+                        <div className={`${th} col-span-2 h-10`}>Gハウスへの不満・不安</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.testClose.complaints}</div>
+                        <div className={`${th} col-span-2 h-10`}>次回アポイント</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.general.testClose.nextDetail}</div>
+                      </div>
+                      <div className="border-b border-black karte-page-break"><div className={`${th} bg-blue-700 text-white text-xs py-1`}>C. 土地エリア精査</div></div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-2`}>希望エリア</div><div className={`${td} col-span-10`}>{data.landDetail.area.target}</div>
+                        <div className={`${th} col-span-2 h-10`}>なぜそのエリア？</div><div className={`${td} col-span-10 h-10 whitespace-pre-wrap`}>{data.landDetail.area.whyDeep}</div>
+                      </div>
+                      <div className="border-b border-black">
+                        <div className={`${th} bg-slate-200`}>通勤事情</div>
+                        <table className="w-full border-collapse">
+                          <thead><tr><th className={th}></th><th className={th}>通勤先</th><th className={th}>所要時間</th><th className={th}>方法</th><th className={th}>通勤への印象</th><th className={th}>次はどこまで許容？</th></tr></thead>
+                          <tbody>
+                            <tr><td className={`${th} text-blue-700`}>ご主人様</td><td className={td}>{data.landDetail.husband.dest}</td><td className={td}>{wu(data.landDetail.husband.time,'分')}</td><td className={td}>{data.landDetail.husband.method}</td><td className={td}>{data.landDetail.husband.feeling}</td><td className={td}>{wu(data.landDetail.husband.limit,'分')}</td></tr>
+                            <tr><td className={`${th} text-pink-600`}>奥様</td><td className={td}>{data.landDetail.wife.dest}</td><td className={td}>{wu(data.landDetail.wife.time,'分')}</td><td className={td}>{data.landDetail.wife.method}</td><td className={td}>{data.landDetail.wife.feeling}</td><td className={td}>{wu(data.landDetail.wife.limit,'分')}</td></tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="grid grid-cols-12 border-b border-black">
+                        <div className={`${th} col-span-12 bg-slate-200`}>駅距離の価値観・実家との関係</div>
+                        <div className={`${th} col-span-2`}>駅距離を気にする？</div><div className={`${td} col-span-4`}>{data.landDetail.station.importance}</div>
+                        <div className={`${th} col-span-2`}>今は何分？</div><div className={`${td} col-span-4`}>{wu(data.landDetail.station.current,'分')}</div>
+                        <div className={`${th} col-span-2 h-10`}>時間の根拠は？</div><div className={`${td} col-span-10 h-10`}>{data.landDetail.station.logic}</div>
+                        <div className={`${th} col-span-2`}>実家の場所</div><div className={`${td} col-span-4`}>{data.landDetail.parents.loc}</div>
+                        <div className={`${th} col-span-2`}>実家距離を気にする？</div><div className={`${td} col-span-4`}>{data.landDetail.parents.importance}</div>
+                        <div className={`${th} col-span-2`}>実家への行き方希望</div><div className={`${td} col-span-10`}>{data.landDetail.parents.access}</div>
+                      </div>
+                      <div className="grid grid-cols-12">
+                        <div className="col-span-6 border-r border-black">
+                          <div className={`${th} bg-slate-200`}>土地への優先順位</div>
+                          <table className="w-full border-collapse"><thead><tr><th className={th}>項目</th><th className={th}>メモ</th></tr></thead><tbody>{data.landDetail.priorities.map((p,i) => (<tr key={p.id} className="border-t border-slate-200"><td className={`${th} text-left pl-2 font-medium`}>{i+1}. {p.label}</td><td className={td}>{p.note}</td></tr>))}</tbody></table>
+                        </div>
+                        <div className="col-span-6">
+                          <div className={`${th} bg-red-100 text-red-800`}>土地のNG条件</div>
+                          <table className="w-full border-collapse"><thead><tr><th className={th}>項目</th><th className={th}>詳細メモ</th></tr></thead><tbody>{data.landDetail.ng.map((n) => (<tr key={n.id} className="border-t border-slate-200"><td className={`${th} text-left pl-2 font-medium text-red-700`}>{n.label}</td><td className={td}>{n.note}</td></tr>))}</tbody></table>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 基本情報 */}
+                {activeTab === 'basic' && (
+                  <div className="space-y-6">
+                    <KSection title="🧑‍🤝‍🧑 代表者様・パートナー様" icon={KIcUser}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <KInputField label="代表者 氏名（フリガナ）" value={data.basic.rep.name} onChange={(v) => updateNested('basic','rep','name',v)} />
+                        <KUnitInput label="代表者 年齢" units={['歳']} value={data.basic.rep.age} onChange={(v) => updateNested('basic','rep','age',v)} />
+                        <KInputField label="連絡先" value={data.basic.rep.contact} onChange={(v) => updateNested('basic','rep','contact',v)} />
+                        <KInputField label="住所・郵便番号" value={data.basic.rep.address} onChange={(v) => updateNested('basic','rep','address',v)} />
+                        <KUnitInput label="代表者 年収" units={['万円']} value={data.basic.rep.income} onChange={(v) => updateNested('basic','rep','income',v)} />
+                        <KUnitInput label="勤続年数" units={['年']} value={data.basic.rep.years} onChange={(v) => updateNested('basic','rep','years',v)} />
+                        <div className="col-span-2 border-t my-2" />
+                        <KInputField label="パートナー 氏名（フリガナ）" value={data.basic.partner.name} onChange={(v) => updateNested('basic','partner','name',v)} />
+                        <KUnitInput label="パートナー 年齢" units={['歳']} value={data.basic.partner.age} onChange={(v) => updateNested('basic','partner','age',v)} />
+                        <KUnitInput label="パートナー 年収" units={['万円']} value={data.basic.partner.income} onChange={(v) => updateNested('basic','partner','income',v)} />
+                        <KUnitInput label="パートナー 勤続年数" units={['年']} value={data.basic.partner.years} onChange={(v) => updateNested('basic','partner','years',v)} />
+                      </div>
+                    </KSection>
+                    <KSection title="家族構成（父母・義父母など）" icon={KIcUser}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {data.basic.familyMembers.map((m, i) => (
+                          <div key={i} className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                            <h4 className="font-bold mb-2 text-indigo-600">{m.role}</h4>
+                            <div className="grid grid-cols-2 gap-2">
+                              <KUnitInput label="年齢" units={['歳']} value={m.age} onChange={(v) => updateArrayItem('basic','familyMembers',i,'age',v)} />
+                              <KInputField label="職業" value={m.job} onChange={(v) => updateArrayItem('basic','familyMembers',i,'job',v)} />
+                              <KUnitInput label="年収" units={['万円']} value={m.income} onChange={(v) => updateArrayItem('basic','familyMembers',i,'income',v)} />
+                              <KInputField label="同居（現）" value={m.coLiveNow} onChange={(v) => updateArrayItem('basic','familyMembers',i,'coLiveNow',v)} />
+                              <KInputField label="同居（将来）" value={m.coLiveFuture} onChange={(v) => updateArrayItem('basic','familyMembers',i,'coLiveFuture',v)} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </KSection>
+                  </div>
+                )}
+
+                {/* 総合ヒアリング */}
+                {activeTab === 'general' && (
+                  <div className="space-y-6">
+                    <KSection title="🧑‍🤝‍🧑 生活情報" icon={KIcHome}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <KInputField label="最寄り駅" value={data.general.life.station} onChange={(v) => updateNested('general','life','station',v)} />
+                        <KUnitInput label="最寄り駅までの時間" units={['分', '時間']} value={data.general.life.stationTime} onChange={(v) => updateNested('general','life','stationTime',v)} />
+                        <KInputField label="現在の住居形態" value={data.general.life.housingType} onChange={(v) => updateNested('general','life','housingType',v)} />
+                        <KInputField label="家族構成（将来想定含む）" value={data.general.life.family} onChange={(v) => updateNested('general','life','family',v)} />
+                        <KUnitInput label="家賃" units={['万円/月']} value={data.general.life.rent} onChange={(v) => updateNested('general','life','rent',v)} />
+                        <KUnitInput label="駐車場代" units={['万円/月']} value={data.general.life.parking} onChange={(v) => updateNested('general','life','parking',v)} />
+                        <KUnitInput label="その他固定費" units={['万円/月']} value={data.general.life.otherCost} onChange={(v) => updateNested('general','life','otherCost',v)} />
+                        <KInputField label="実家場所" value={data.general.life.homeLoc} onChange={(v) => updateNested('general','life','homeLoc',v)} />
+                        <KInputField label="趣味" value={data.general.life.hobby} onChange={(v) => updateNested('general','life','hobby',v)} />
+                        <div />
+                        <KTextAreaField label="家づくりを考え始めた理由" value={data.general.life.reason} onChange={(v) => updateNested('general','life','reason',v)} />
+                        <KTextAreaField label="Gハウスを知ったきっかけ・来場動機" value={data.general.life.trigger} onChange={(v) => updateNested('general','life','trigger',v)} />
+                        <KTextAreaField label="Gハウスで関心のあること" value={data.general.life.interest} onChange={(v) => updateNested('general','life','interest',v)} />
+                        <KTextAreaField label="現在の検討メーカー・印象" value={data.general.life.currentMaker} onChange={(v) => updateNested('general','life','currentMaker',v)} />
+                      </div>
+                    </KSection>
+                    <KSection title="🏠【物】土地・建物" icon={KIcMap}>
+                      <h3 className="font-bold text-slate-700 mb-3 border-l-4 border-blue-500 pl-2">≪土地≫</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 mb-6">
+                        <KInputField label="土地探しの有無" value={data.general.land.hasLand} onChange={(v) => updateNested('general','land','hasLand',v)} />
+                        <KInputField label="希望エリアと理由" value={data.general.land.areaReason} onChange={(v) => updateNested('general','land','areaReason',v)} />
+                        <KInputField label="通勤先・方法・希望距離感" value={data.general.land.commuteGoal} onChange={(v) => updateNested('general','land','commuteGoal',v)} />
+                        <KInputField label="実家との距離・関係性" value={data.general.land.parentsRel} onChange={(v) => updateNested('general','land','parentsRel',v)} />
+                        <KInputField label="駅までの距離や移動手段への考え" value={data.general.land.stationThought} onChange={(v) => updateNested('general','land','stationThought',v)} />
+                        <KInputField label="今の住まいを選んだ理由" value={data.general.land.currentHomeReason} onChange={(v) => updateNested('general','land','currentHomeReason',v)} />
+                        <KUnitInput label="土地予算" units={['万円']} value={data.general.land.landBudget} onChange={(v) => updateNested('general','land','landBudget',v)} />
+                      </div>
+                      <h3 className="font-bold text-slate-700 mb-3 border-l-4 border-indigo-500 pl-2">≪建物≫</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <KInputField label="階数" value={data.general.building.floors} onChange={(v) => updateNested('general','building','floors',v)} />
+                        <KInputField label="部屋数と用途" value={data.general.building.rooms} onChange={(v) => updateNested('general','building','rooms',v)} />
+                        <KTextAreaField label="希望する追加部屋（和室・WIC・書斎など）と理由" value={data.general.building.extraRooms} onChange={(v) => updateNested('general','building','extraRooms',v)} />
+                        <KTextAreaField label="間取りのこだわり・困っている点" value={data.general.building.layoutPoint} onChange={(v) => updateNested('general','building','layoutPoint',v)} />
+                        <KTextAreaField label="やりたいこと・理由" value={data.general.building.goals} onChange={(v) => updateNested('general','building','goals',v)} />
+                        <KInputField label="車台数と理由" value={data.general.building.cars} onChange={(v) => updateNested('general','building','cars',v)} />
+                        <KInputField label="庭の希望" value={data.general.building.garden} onChange={(v) => updateNested('general','building','garden',v)} />
+                        <KUnitInput label="建物予算" units={['万円']} value={data.general.building.buildingBudget} onChange={(v) => updateNested('general','building','buildingBudget',v)} />
+                      </div>
+                    </KSection>
+                    <KSection title="💴【金】資金計画" icon={KIcCoins}>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4">
+                        <KUnitInput label="ご主人年収" units={['万円']} value={data.general.money.husbandIncome} onChange={(v) => updateNested('general','money','husbandIncome',v)} />
+                        <KUnitInput label="奥様年収" units={['万円']} value={data.general.money.wifeIncome} onChange={(v) => updateNested('general','money','wifeIncome',v)} />
+                        <KUnitInput label="総予算" units={['万円']} value={data.general.money.totalBudget} onChange={(v) => updateNested('general','money','totalBudget',v)} />
+                        <KUnitInput label="頭金予定額" units={['万円']} value={data.general.money.downPayment} onChange={(v) => updateNested('general','money','downPayment',v)} />
+                        <KUnitInput label="貯金額" units={['万円']} value={data.general.money.savings} onChange={(v) => updateNested('general','money','savings',v)} />
+                        <KUnitInput label="援助金" units={['万円']} value={data.general.money.aid} onChange={(v) => updateNested('general','money','aid',v)} />
+                        <KUnitInput label="月々希望額" units={['万円/月']} value={data.general.money.monthlyHope} onChange={(v) => updateNested('general','money','monthlyHope',v)} />
+                      </div>
+                      <KTextAreaField label="既存借入（残額・月々・ボーナス・年間）" value={data.general.money.existingLoan} onChange={(v) => updateNested('general','money','existingLoan',v)} />
+                      <KTextAreaField label="理想の月々支払い額とその理由" value={data.general.money.idealPayment} onChange={(v) => updateNested('general','money','idealPayment',v)} />
+                      <KTextAreaField label="現在の家賃との差への考え" value={data.general.money.rentGap} onChange={(v) => updateNested('general','money','rentGap',v)} />
+                    </KSection>
+                    <KSection title="⏰【時】希望時期 / ⚔【敵】競合" icon={KIcClock}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <KTextAreaField label="希望入居時期と理由" value={data.general.time.period} onChange={(v) => updateNested('general','time','period',v)} />
+                        <KInputField label="入居リミットの有無" value={data.general.time.limit} onChange={(v) => updateNested('general','time','limit',v)} />
+                        <div className="col-span-2 border-t my-2" />
+                        <KInputField label="検討他社名" value={data.general.rival.name} onChange={(v) => updateNested('general','rival','name',v)} />
+                        <div />
+                        <KTextAreaField label="気に入っている点" value={data.general.rival.pros} onChange={(v) => updateNested('general','rival','pros',v)} />
+                        <KTextAreaField label="不満点" value={data.general.rival.cons} onChange={(v) => updateNested('general','rival','cons',v)} />
+                      </div>
+                    </KSection>
+                    <KSection title="🧪【テスクロ】" icon={KIcFlask}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <KInputField label="有無" value={data.general.testClose.hasTest} onChange={(v) => updateNested('general','testClose','hasTest',v)} />
+                        <div />
+                        <KTextAreaField label="テスクロ結果" value={data.general.testClose.result} onChange={(v) => updateNested('general','testClose','result',v)} />
+                        <KTextAreaField label="Gハウスへの不満点・不安点" value={data.general.testClose.complaints} onChange={(v) => updateNested('general','testClose','complaints',v)} />
+                        <KTextAreaField label="次回アポイント日時・内容" value={data.general.testClose.nextDetail} onChange={(v) => updateNested('general','testClose','nextDetail',v)} />
+                      </div>
+                    </KSection>
+                  </div>
+                )}
+
+                {/* 土地エリア精査 */}
+                {activeTab === 'land' && (
+                  <div className="space-y-6">
+                    <KSection title="【土地エリア 精査ヒアリング】" icon={KIcMap}>
+                      <KInputField label="希望エリア" value={data.landDetail.area.target} onChange={(v) => updateNested('landDetail','area','target',v)} />
+                      <KTextAreaField label="なぜ？深く聞く" value={data.landDetail.area.whyDeep} onChange={(v) => updateNested('landDetail','area','whyDeep',v)} />
+                    </KSection>
+                    <KSection title="通勤事情 ※夫婦それぞれ聞く" icon={KIcTrain}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-3">
+                          <h4 className="font-bold text-blue-600 border-b pb-1">ご主人様</h4>
+                          <KInputField label="通勤先" value={data.landDetail.husband.dest} onChange={(v) => updateNested('landDetail','husband','dest',v)} />
+                          <KUnitInput label="所要時間" units={['分', '時間']} value={data.landDetail.husband.time} onChange={(v) => updateNested('landDetail','husband','time',v)} />
+                          <KInputField label="方法（電車・車など）" value={data.landDetail.husband.method} onChange={(v) => updateNested('landDetail','husband','method',v)} />
+                          <KInputField label="通勤への印象" value={data.landDetail.husband.feeling} onChange={(v) => updateNested('landDetail','husband','feeling',v)} />
+                          <KUnitInput label="次はどれぐらいならいける？" units={['分', '時間']} value={data.landDetail.husband.limit} onChange={(v) => updateNested('landDetail','husband','limit',v)} />
+                        </div>
+                        <div className="space-y-3">
+                          <h4 className="font-bold text-pink-600 border-b pb-1">奥様</h4>
+                          <KInputField label="通勤先" value={data.landDetail.wife.dest} onChange={(v) => updateNested('landDetail','wife','dest',v)} />
+                          <KUnitInput label="所要時間" units={['分', '時間']} value={data.landDetail.wife.time} onChange={(v) => updateNested('landDetail','wife','time',v)} />
+                          <KInputField label="方法（電車・車など）" value={data.landDetail.wife.method} onChange={(v) => updateNested('landDetail','wife','method',v)} />
+                          <KInputField label="通勤への印象" value={data.landDetail.wife.feeling} onChange={(v) => updateNested('landDetail','wife','feeling',v)} />
+                          <KUnitInput label="次はどれぐらいならいける？" units={['分', '時間']} value={data.landDetail.wife.limit} onChange={(v) => updateNested('landDetail','wife','limit',v)} />
+                        </div>
+                      </div>
+                    </KSection>
+                    <KSection title="駅距離・実家・優先順位" icon={KIcHeart}>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 mb-6">
+                        <div className="space-y-3">
+                          <h4 className="font-bold text-slate-700">駅距離の価値観</h4>
+                          <KInputField label="駅までの距離気にする？" value={data.landDetail.station.importance} onChange={(v) => updateNested('landDetail','station','importance',v)} />
+                          <KInputField label="その時間の根拠は？" value={data.landDetail.station.logic} onChange={(v) => updateNested('landDetail','station','logic',v)} />
+                          <KUnitInput label="今は何分？" units={['分', '時間']} value={data.landDetail.station.current} onChange={(v) => updateNested('landDetail','station','current',v)} />
+                        </div>
+                        <div className="space-y-3">
+                          <h4 className="font-bold text-slate-700">実家との関係</h4>
+                          <KInputField label="実家は？" value={data.landDetail.parents.loc} onChange={(v) => updateNested('landDetail','parents','loc',v)} />
+                          <KInputField label="実家までの距離気にする？" value={data.landDetail.parents.importance} onChange={(v) => updateNested('landDetail','parents','importance',v)} />
+                          <KInputField label="どうやって行けたらいい？" value={data.landDetail.parents.access} onChange={(v) => updateNested('landDetail','parents','access',v)} />
+                        </div>
+                      </div>
+                      <h4 className="font-bold text-slate-700 mb-2">土地に対して求めること（優先順位）</h4>
+                      <table className="w-full text-xs border border-slate-200 rounded-lg overflow-hidden mb-6">
+                        <thead className="bg-slate-50 border-b"><tr><th className="p-2 text-left">項目</th><th className="p-2 text-left">メモ</th></tr></thead>
+                        <tbody className="divide-y">
+                          {data.landDetail.priorities.map(p => (
+                            <tr key={p.id}><td className="p-2 font-medium w-48">{p.label}</td><td className="p-1"><input className="w-full p-1 outline-none bg-transparent" value={p.note} onChange={e => updateList('landDetail','priorities',p.id,e.target.value)} /></td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <h4 className="font-bold text-red-700 mb-2">土地に対するNG</h4>
+                      <div className="grid grid-cols-1 gap-2">
+                        {data.landDetail.ng.map(n => (
+                          <div key={n.id} className="flex items-center gap-4 bg-red-50 p-2 rounded border border-red-100">
+                            <span className="w-56 font-bold text-red-900 text-xs">{n.label}</span>
+                            <input className="flex-1 text-xs p-1 border rounded" placeholder="詳細メモ" value={n.note} onChange={e => updateList('landDetail','ng',n.id,e.target.value)} />
+                          </div>
+                        ))}
+                      </div>
+                    </KSection>
+                  </div>
+                )}
+
+                <footer className="mt-8 text-center text-slate-400 text-[10px] pb-6">
+                  <p>© G-House Internal Sales System | Version Final</p>
+                </footer>
+              </div>
+            </div>
+          );
+        };
+
+        // --- ルートカルテアプリ ---
+        const KarteApp = () => {
+          const [screen, setScreen]       = useState('list');
+          const [customers, setCustomers] = useState([]);
+          const [branches, setBranches]   = useState([]);
+          const [currentId, setCurrentId] = useState(null);
+          const [showNewModal, setShowNewModal] = useState(false);
+          const [dbLoading, setDbLoading] = useState(false);
+          const [returnScreen, setReturnScreen] = useState('list');
+
+          const fromDB = (key, val) => {
+            let status = val.status || emptyStatus();
+            if ('rankA' in status || 'rankB' in status || 'applyBuilding' in status) {
+              const r = ['A','B','C','D'].find(r => status[`rank${r}`]) || '';
+              const cs = status.contract ? '契約' : status.applyBuilding ? '建築申込' : r ? '限定会員' : '';
+              status = { customerStatus: cs, rank: r, contractDate: '', prospectMonth: '' };
+            }
+            return {
+              id: key, staffName: val.staffName || '', belong: val.belong || '',
+              customerName: val.customerName || '',
+              createdAt: val.createdAt || new Date().toISOString(),
+              updatedAt: val.updatedAt || new Date().toISOString(),
+              status,
+              eval: (() => { const e = val.eval || {}; if ('person' in e) { return { hito: e.person || '', mono: e.mono || '', money: e.money || '', time: e.time || '', rival: e.rival || '' }; } return { hito: e.hito || '', mono: e.mono || '', money: e.money || '', time: e.time || '', rival: e.rival || '' }; })(),
+              karteData: val.karteData || emptyKarteData(),
+            };
+          };
+
+          useEffect(() => {
+            setDbLoading(true);
+            const customersRef = database.ref('karte/customers');
+            customersRef.on('value', snap => {
+              if (snap.exists()) {
+                const arr = [];
+                snap.forEach(child => arr.push(fromDB(child.key, child.val())));
+                arr.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+                setCustomers(arr);
+              } else { setCustomers([]); }
+              setDbLoading(false);
+            });
+            const branchesRef = database.ref('karte/branches');
+            branchesRef.on('value', snap => {
+              if (snap.exists()) {
+                const arr = [];
+                snap.forEach(child => arr.push({ id: child.key, ...child.val() }));
+                arr.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+                setBranches(arr);
+              } else { setBranches([]); }
+            });
+            return () => { customersRef.off(); branchesRef.off(); };
+          }, []);
+
+          const handleAddBranch = async (name) => {
+            try {
+              const now = new Date().toISOString();
+              const ref = await database.ref('karte/branches').push({ name, createdAt: now });
+              setBranches(prev => [...prev, { id: ref.key, name, createdAt: now }]);
+              return null;
+            } catch (e) { return e.message; }
+          };
+
+          const handleDeleteBranch = async (id) => {
+            await database.ref('karte/branches/' + id).remove();
+            setBranches(prev => prev.filter(b => b.id !== id));
+          };
+
+          const handleCreate = async ({ staffName, belong, customerName }) => {
+            try {
+              const now = new Date().toISOString();
+              const ref = await database.ref('karte/customers').push({ staffName, belong, customerName, status: emptyStatus(), eval: emptyEval(), karteData: emptyKarteData(), createdAt: now, updatedAt: now });
+              const newCustomer = { id: ref.key, staffName, belong, customerName, status: emptyStatus(), eval: emptyEval(), karteData: emptyKarteData(), createdAt: now, updatedAt: now };
+              setCustomers(prev => [newCustomer, ...prev]);
+              setCurrentId(ref.key);
+              setShowNewModal(false);
+              setScreen('edit');
+              return null;
+            } catch (e) { return e.message; }
+          };
+
+          const handleEdit = (id, from = 'list') => { setReturnScreen(from); setCurrentId(id); setScreen('edit'); };
+
+          const handleUpdateStatus = async (id, status, evalData) => {
+            try {
+              const updatedAt = new Date().toISOString();
+              await database.ref('karte/customers/' + id).update({ status, eval: evalData, updatedAt });
+              setCustomers(prev => prev.map(c => c.id === id ? { ...c, status, eval: evalData, updatedAt } : c));
+              return null;
+            } catch (e) { return e.message; }
+          };
+
+          const handleSave = async (id, karteData) => {
+            if (!karteData) return '保存データが不正です';
+            try {
+              const updatedAt = new Date().toISOString();
+              await database.ref('karte/customers/' + id).update({ karteData, updatedAt });
+              setCustomers(prev => prev.map(c => c.id === id ? { ...c, karteData, updatedAt } : c));
+              return null;
+            } catch (e) { return e.message; }
+          };
+
+          const handleDelete = async (id) => {
+            await database.ref('karte/customers/' + id).remove();
+            setCustomers(prev => prev.filter(c => c.id !== id));
+          };
+
+          const handleUpdateInfo = async (id, { staffName, belong, customerName }) => {
+            try {
+              const updatedAt = new Date().toISOString();
+              await database.ref('karte/customers/' + id).update({ staffName, belong, customerName, updatedAt });
+              setCustomers(prev => prev.map(c => c.id === id ? { ...c, staffName, belong, customerName, updatedAt } : c));
+              return null;
+            } catch (e) { return e.message; }
+          };
+
+          const handleBack = () => { setScreen(returnScreen); setCurrentId(null); };
+          const currentCustomer = customers.find(c => c.id === currentId);
+          const activeCustomers = customers.filter(c => c.status?.customerStatus !== '契約');
+          const contractedCustomers = customers.filter(c => c.status?.customerStatus === '契約');
+
+          return (
+            <>
+              {showNewModal && <KNewCustomerModal onClose={() => setShowNewModal(false)} onCreate={handleCreate} branches={branches} />}
+              {screen === 'list' && <KCustomerList customers={activeCustomers} onNew={() => setShowNewModal(true)} onEdit={handleEdit} onDelete={handleDelete} dbLoading={dbLoading} branches={branches} onAddBranch={handleAddBranch} onDeleteBranch={handleDeleteBranch} contractCount={contractedCustomers.length} onGoContracts={() => setScreen('contracts')} />}
+              {screen === 'contracts' && <KContractList customers={contractedCustomers} onEdit={(id) => handleEdit(id, 'contracts')} onBack={() => setScreen('list')} />}
+              {screen === 'edit' && currentCustomer && <KKarteEditor customer={currentCustomer} onBack={handleBack} onSave={handleSave} onUpdateInfo={handleUpdateInfo} onUpdateStatus={handleUpdateStatus} />}
+            </>
+          );
+        };
+
+        // ==========================================
+        const UnifiedApp = () => {
+          const [currentView, setCurrentView] = useState('home');
+          const [isLoggedIn, setIsLoggedIn] = useState(false);
+          const [userEmail, setUserEmail] = useState('');
+          const [userName, setUserName] = useState('');
+          const [isAdmin, setIsAdmin] = useState(false);
+          const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+          const [showDiagnostics, setShowDiagnostics] = useState(false);
+          const [sidebarOpen, setSidebarOpen] = useState(true);
+
+          // Firebase Auth状態を監視（DB照合でアクセス制御）
+          useEffect(() => {
+              const unsubscribe = auth.onAuthStateChanged(async (user) => {
+                  if (user) {
+                      // ログイン/初期設定ハンドラが処理中の場合はスキップ（競合防止）
+                      if (_authHandlerActive) {
+                          setIsCheckingAuth(false);
+                          return;
+                      }
+                      try {
+                          // ページリフレッシュ時のセッション復元：DBでユーザー確認
+                          const snap = await database.ref(`users/${user.uid}`).once('value');
+                          if (snap.exists() && !snap.val().disabled) {
+                              const userData = snap.val();
+                              setIsLoggedIn(true);
+                              setUserEmail(userData.email);
+                              setUserName(userData.name);
+                              setIsAdmin(userData.isAdmin || false);
+                          } else {
+                              await auth.signOut();
+                              setIsLoggedIn(false);
+                              setUserEmail(''); setUserName(''); setIsAdmin(false);
+                          }
+                      } catch (e) {
+                          setIsLoggedIn(false);
+                          setUserEmail(''); setUserName(''); setIsAdmin(false);
+                      }
+                  } else {
+                      setIsLoggedIn(false);
+                      setUserEmail(''); setUserName(''); setIsAdmin(false);
+                  }
+                  setIsCheckingAuth(false);
+              });
+
+              return () => unsubscribe();
+          }, []);
+
+          const handleLogin = (email, name, adminFlag) => {
+              setIsLoggedIn(true);
+              setUserEmail(email);
+              setUserName(name);
+              setIsAdmin(adminFlag);
+          };
+
+          const handleLogout = async () => {
+              try {
+                  await auth.signOut();
+                  console.log('Logged out successfully');
+              } catch (error) {
+                  console.error('Logout error:', error);
+              }
+          };
+
+          // 認証チェック中
+          if (isCheckingAuth) {
+              return (
+                  <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+                      <div className="text-center">
+                          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                          <p className="text-gray-600">読み込み中...</p>
+                      </div>
+                  </div>
+              );
+          }
+
+          // 未ログインの場合はログイン画面を表示
+          if (!isLoggedIn) {
+              return <LoginScreen onLogin={handleLogin} />;
+          }
+
+          const navItems = [
+            { view: 'home',      label: 'ホーム',         icon: 'home' },
+            { view: 'karte',     label: '顧客カルテ',     icon: 'notebook' },
+            { view: 'dashboard', label: 'ダッシュボード', icon: 'bar-chart-2' },
+            { view: 'flow',      label: '営業フロー',     icon: 'clipboard-list' },
+            { view: 'sales',     label: '営業育成',       icon: 'users' },
+            { view: 'bank',      label: '各種銀行',       icon: 'landmark' },
+            { view: 'debut',     label: 'デビュー研修',   icon: 'graduation-cap' },
+            { view: 'stockcon',  label: 'ストコン情報',   icon: 'building-2' },
+            { view: 'schedule',  label: 'スケジュール',   icon: 'calendar-days' },
+          ];
+
+          return (
+            <div className="h-full flex flex-col">
+              {showDiagnostics && <FirebaseDiagnostics onClose={() => setShowDiagnostics(false)} />}
+
+              {/* スリムヘッダー */}
+              <header className="h-11 bg-white border-b border-gray-200 flex items-center px-3 gap-3 flex-shrink-0 z-30">
+                <button onClick={() => setSidebarOpen(v => !v)} className="p-1.5 rounded hover:bg-gray-100 transition-colors text-gray-500" title="メニュー開閉">
+                  <LucideIcon name="menu" size={18} />
+                </button>
+                <span className="font-bold text-gray-700 text-sm">G-house | 営業サイト</span>
+                <div className="ml-auto flex items-center gap-2">
+                  <button onClick={() => setShowDiagnostics(true)} className="p-1.5 rounded hover:bg-gray-100 transition-colors text-gray-400" title="データ診断">
+                    <LucideIcon name="database" size={15} />
+                  </button>
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500 border-l border-gray-200 pl-2">
+                    <LucideIcon name="user" size={14} className="text-gray-400" />
+                    <span className="max-w-[120px] truncate">{userName || userEmail}</span>
+                    {isAdmin && <span className="text-[10px] bg-gray-100 text-gray-600 font-bold px-1.5 py-0.5 rounded">管理者</span>}
+                  </div>
+                  <button onClick={handleLogout} className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 rounded transition-colors border-l border-gray-200 ml-1 pl-2">
+                    <LucideIcon name="log-out" size={13} />
+                    ログアウト
+                  </button>
+                </div>
+              </header>
+
+              {/* ボディ：サイドバー＋コンテンツ */}
+              <div className="flex flex-1 overflow-hidden">
+
+                {/* サイドバー */}
+                {sidebarOpen && (
+                  <aside className="w-48 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 overflow-y-auto z-20">
+                    <nav className="flex-1 py-2">
+                      {navItems.map(({ view, label, icon }) => (
+                        <button
+                          key={view}
+                          onClick={() => setCurrentView(view)}
+                          className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors text-left ${
+                            currentView === view
+                              ? 'bg-gray-900 text-white'
+                              : 'text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          <LucideIcon name={icon} size={16} className="flex-shrink-0" />
+                          {label}
+                        </button>
+                      ))}
+                      {isAdmin && (
+                        <button
+                          onClick={() => setCurrentView('admin')}
+                          className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors text-left mt-2 border-t border-gray-100 ${
+                            currentView === 'admin'
+                              ? 'bg-gray-900 text-white'
+                              : 'text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          <LucideIcon name="settings" size={16} className="flex-shrink-0" />
+                          ユーザー管理
+                        </button>
+                      )}
+                    </nav>
+                  </aside>
+                )}
+
+                {/* メインコンテンツ */}
+                <div className="flex-1 overflow-auto bg-gray-100">
+                  <ErrorBoundary>
+                    {currentView === 'home' && <HomePage onNavigate={setCurrentView} />}
+                    {currentView === 'dashboard' && <SalesDataDashboard />}
+                    {currentView === 'sales' && <SalesApp />}
+                    {currentView === 'flow' && <FlowManagementApp onNavigateToKarte={() => setCurrentView('karte')} />}
+                    {currentView === 'bank' && <BankManagementApp />}
+                    {currentView === 'debut' && <DebutTrainingApp />}
+                    {currentView === 'stockcon' && <StockConInfoApp />}
+                    {currentView === 'schedule' && <ScheduleApp />}
+                    {currentView === 'karte' && <KarteApp />}
+                    {currentView === 'admin' && isAdmin && <UserManagementApp />}
+                  </ErrorBoundary>
+                </div>
+              </div>
+            </div>
+          );
+        }
+export default UnifiedApp;
