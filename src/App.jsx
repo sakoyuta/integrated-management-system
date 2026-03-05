@@ -6817,10 +6817,11 @@ import { marked } from 'marked';
         );
 
         // --- 契約済一覧 ---
-        const KContractList = ({ customers, onEdit, onBack }) => {
+        const KContractList = ({ customers, onEdit, onBack, onDelete }) => {
           const [search, setSearch] = useState('');
           const [selectedBranch, setSelectedBranch] = useState('all');
           const [selectedMonth, setSelectedMonth] = useState('all');
+          const [deleteTarget, setDeleteTarget] = useState(null);
           const MONTHS = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
           const branchOptions = [...new Set(customers.map(c => c.belong).filter(Boolean))].sort();
           const monthOptions = MONTHS.filter(m => customers.some(c => c.status?.contractMonth === m));
@@ -6831,6 +6832,7 @@ import { marked } from 'marked';
             .sort((a, b) => (b.status?.contractDate || b.updatedAt) < (a.status?.contractDate || a.updatedAt) ? 1 : -1);
           return (
             <div className="min-h-screen bg-slate-100 font-sans">
+              {deleteTarget && <KDeleteModal customerName={deleteTarget.customerName} onCancel={() => setDeleteTarget(null)} onConfirm={() => { onDelete(deleteTarget.id); setDeleteTarget(null); }} />}
               <div className="max-w-5xl mx-auto px-4 py-8">
                 <div className="bg-white border border-slate-200 p-5 mb-4">
                   <div className="flex items-center justify-between gap-4">
@@ -6882,7 +6884,10 @@ import { marked } from 'marked';
                               ))}
                             </div>
                           </div>
-                          <button onClick={() => onEdit(c.id)} className="bg-slate-700 text-white px-4 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-800 transition flex-shrink-0"><KIcEdit /> 開く</button>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <button onClick={() => onEdit(c.id)} className="bg-slate-700 text-white px-4 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-slate-800 transition"><KIcEdit /> 開く</button>
+                            <button onClick={() => setDeleteTarget(c)} className="border border-slate-300 text-slate-500 px-3 py-2 font-bold text-sm flex items-center gap-1.5 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition"><KIcTrash /></button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -7911,7 +7916,7 @@ import { marked } from 'marked';
               </div>
               {showNewModal && <KNewCustomerModal onClose={() => setShowNewModal(false)} onCreate={handleCreate} branches={branches} />}
               {screen === 'list' && <KCustomerList customers={activeCustomers} onNew={() => setShowNewModal(true)} onEdit={handleEdit} onDelete={handleDelete} dbLoading={dbLoading} branches={branches} onAddBranch={handleAddBranch} onDeleteBranch={handleDeleteBranch} contractCount={contractedCustomers.length} onGoContracts={() => setScreen('contracts')} />}
-              {screen === 'contracts' && <KContractList customers={contractedCustomers} onEdit={(id) => handleEdit(id, 'contracts')} onBack={() => setScreen('list')} />}
+              {screen === 'contracts' && <KContractList customers={contractedCustomers} onEdit={(id) => handleEdit(id, 'contracts')} onBack={() => setScreen('list')} onDelete={handleDelete} />}
               {screen === 'edit' && currentCustomer && <KKarteEditor customer={currentCustomer} onBack={handleBack} onSave={handleSave} onUpdateInfo={handleUpdateInfo} onUpdateStatus={handleUpdateStatus} />}
               {screen === 'edit' && !currentCustomer && <div style={{padding:20,color:'red',fontWeight:'bold'}}>⚠ currentCustomerが見つかりません (id:{currentId})<br/>customers:{customers.map(c=>c.id).join(',')}<br/><button onClick={()=>{setScreen('list');setCurrentId(null);}}>一覧に戻る</button></div>}
             </>
