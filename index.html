@@ -6871,6 +6871,7 @@
           rank: '',            // 'A' | 'B' | 'C' | 'D'
           contractDate: '',
           prospectMonth: '',   // '1月' ～ '12月'
+          contractMonth: '',   // '1月' ～ '12月'
         });
         const emptyEval = () => ({ hito: '', mono: '', money: '', time: '', rival: '' });
 
@@ -6909,8 +6910,15 @@
         // --- 契約済一覧 ---
         const KContractList = ({ customers, onEdit, onBack }) => {
           const [search, setSearch] = useState('');
+          const [selectedBranch, setSelectedBranch] = useState('all');
+          const [selectedMonth, setSelectedMonth] = useState('all');
+          const MONTHS = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+          const branchOptions = [...new Set(customers.map(c => c.belong).filter(Boolean))].sort();
+          const monthOptions = MONTHS.filter(m => customers.some(c => c.status?.contractMonth === m));
           const sorted = customers
-            .filter(c => c.customerName.includes(search) || c.staffName.includes(search) || c.belong.includes(search))
+            .filter(c => (c.customerName.includes(search) || c.staffName.includes(search) || (c.belong||'').includes(search))
+              && (selectedBranch === 'all' || c.belong === selectedBranch)
+              && (selectedMonth === 'all' || c.status?.contractMonth === selectedMonth))
             .sort((a, b) => (b.status?.contractDate || b.updatedAt) < (a.status?.contractDate || a.updatedAt) ? 1 : -1);
           return (
             <div className="min-h-screen bg-slate-100 font-sans">
@@ -6924,7 +6932,19 @@
                     <span className="bg-slate-100 text-slate-700 font-black text-sm px-3 py-1.5">{customers.length} 件</span>
                   </div>
                 </div>
-                <div className="mb-4"><input className="w-full p-3 border border-slate-300 text-sm outline-none bg-white" placeholder="お客様名・担当者名・拠点で検索..." value={search} onChange={e => setSearch(e.target.value)} /></div>
+                <div className="bg-white border border-slate-200 p-4 mb-3 space-y-2">
+                  <input className="w-full p-3 border border-slate-300 text-sm outline-none bg-white" placeholder="お客様名・担当者名・拠点で検索..." value={search} onChange={e => setSearch(e.target.value)} />
+                  <div className="flex gap-2 flex-wrap">
+                    <select className="p-2 border border-slate-300 text-sm outline-none bg-white" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}>
+                      <option value="all">拠点：全て</option>
+                      {branchOptions.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                    <select className="p-2 border border-slate-300 text-sm outline-none bg-white" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}>
+                      <option value="all">契約月：全て</option>
+                      {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                </div>
                 <p className="text-xs text-slate-400 mb-3 px-1">{sorted.length} 件</p>
                 {sorted.length === 0 ? (
                   <div className="bg-white border border-slate-200 p-16 text-center">
@@ -6944,6 +6964,7 @@
                             </div>
                             <div className="flex items-center gap-4 mt-1 text-sm text-slate-500 flex-wrap">
                               <span>担当: <span className="font-bold text-slate-700">{c.staffName}</span></span>
+                              {c.status?.contractMonth && (<><span className="text-slate-300">|</span><span>契約月: <span className="font-bold text-slate-700">{c.status.contractMonth}</span></span></>)}
                               {c.status?.contractDate && (<><span className="text-slate-300">|</span><span>契約日: <span className="font-bold text-slate-700">{c.status.contractDate}</span></span></>)}
                             </div>
                             <div className="flex flex-wrap gap-1 mt-1.5">
@@ -7023,8 +7044,8 @@
         };
 
         // --- 新規作成モーダル ---
-        const KNewCustomerModal = ({ onClose, onCreate }) => {
-          const [form, setForm] = useState({ staffName: '', belong: '', customerName: '' });
+        const KNewCustomerModal = ({ onClose, onCreate, branches }) => {
+          const [form, setForm] = useState({ staffName: '', belong: branches?.[0]?.name || '', customerName: '' });
           const [loading, setLoading] = useState(false);
           const [error, setError] = useState('');
           const valid = form.staffName.trim() && form.belong.trim() && form.customerName.trim();
@@ -7044,7 +7065,16 @@
                 </div>
                 <div className="p-6 space-y-4">
                   <div><label className="block text-sm font-bold text-slate-700 mb-1">営業担当者氏名 <span className="text-red-500">*</span></label><input className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例：山田 太郎" value={form.staffName} onChange={e => setForm(f => ({...f, staffName: e.target.value}))} /></div>
-                  <div><label className="block text-sm font-bold text-slate-700 mb-1">拠点 <span className="text-red-500">*</span></label><input className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例：大阪営業所" value={form.belong} onChange={e => setForm(f => ({...f, belong: e.target.value}))} /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">拠点 <span className="text-red-500">*</span></label>
+                    {branches && branches.length > 0 ? (
+                      <select className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white" value={form.belong} onChange={e => setForm(f => ({...f, belong: e.target.value}))}>
+                        <option value="">-- 選択してください --</option>
+                        {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                      </select>
+                    ) : (
+                      <input className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例：大阪営業所" value={form.belong} onChange={e => setForm(f => ({...f, belong: e.target.value}))} />
+                    )}
+                  </div>
                   <div><label className="block text-sm font-bold text-slate-700 mb-1">お客様名 <span className="text-red-500">*</span></label><input className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="例：田中 様" value={form.customerName} onChange={e => setForm(f => ({...f, customerName: e.target.value}))} /></div>
                   {error && <div className="bg-red-50 border border-red-200 rounded-lg p-3"><p className="text-red-700 text-xs font-bold">エラー: {error}</p></div>}
                 </div>
@@ -7282,7 +7312,6 @@
           const [infoErr, setInfoErr] = useState('');
           const [statusData, setStatusData] = useState(customer.status || emptyStatus());
           const [evalData, setEvalData] = useState(customer.eval || emptyEval());
-          const [statusSaving, setStatusSaving] = useState(false);
 
           const handleSaveInfo = async () => {
             if (!infoForm.staffName.trim() || !infoForm.belong.trim() || !infoForm.customerName.trim()) return;
@@ -7297,7 +7326,9 @@
           const updateList = (tab, listName, id, val) => setData(prev => ({ ...prev, [tab]: { ...prev[tab], [listName]: prev[tab][listName].map(item => item.id === id ? { ...item, note: val } : item) } }));
           const handleSave = async () => {
             setSaveMsg('保存中...');
-            const err = await onSave(customer.id, data);
+            const errKarte = await onSave(customer.id, data);
+            const errStatus = await onUpdateStatus(customer.id, statusData, evalData);
+            const err = errKarte || errStatus;
             if (err) { setSaveMsg('保存失敗 ❌ ' + err); } else { setSaveMsg('保存しました ✅'); }
             setTimeout(() => setSaveMsg(''), 3000);
           };
@@ -7358,16 +7389,13 @@
 
                 {/* 状態・評価パネル */}
                 <div className="bg-white border border-slate-300 p-4 mb-4 no-print">
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="mb-3">
                     <h3 className="font-bold text-slate-700 text-sm">お客様状態・評価</h3>
-                    <button type="button" onClick={async () => { setStatusSaving(true); await onUpdateStatus(customer.id, statusData, evalData); setStatusSaving(false); }}
-                      className="text-xs bg-slate-700 text-white px-4 py-1.5 font-bold hover:bg-slate-800 transition disabled:opacity-50" disabled={statusSaving}>
-                      {statusSaving ? '保存中...' : '保存'}
-                    </button>
+                    <p className="text-xs text-slate-400 mt-0.5">上部の「一時保存」ボタンで保存されます</p>
                   </div>
                   <div className="flex gap-6 flex-wrap divide-x divide-slate-200">
                     <div className="space-y-3 flex-1 min-w-[220px]">
-                      <p className="text-xs font-bold text-slate-500 pb-1 border-b border-slate-200">【物】状態・ランク・見込み月・契約日</p>
+                      <p className="text-xs font-bold text-slate-500 pb-1 border-b border-slate-200">【物】状態・ランク・見込み月</p>
                       <div>
                         <p className="text-xs text-slate-400 mb-1">お客様の状態</p>
                         <div className="flex gap-1 flex-wrap">
@@ -7380,29 +7408,44 @@
                           ))}
                         </div>
                       </div>
-                      <div>
-                        <p className="text-xs text-slate-400 mb-1">ランク</p>
-                        <div className="flex gap-1">
-                          {['A','B','C','D'].map(r => (
-                            <button key={r} type="button" onClick={() => setStatusData(p => ({...p, rank: p.rank===r?'':r}))}
-                              className={`w-9 h-9 text-sm border font-bold transition ${statusData.rank===r?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{r}</button>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-400 mb-1">見込み月</p>
-                        <div className="flex gap-1 flex-wrap">
-                          {['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'].map(m => (
-                            <button key={m} type="button" onClick={() => setStatusData(p => ({...p, prospectMonth: p.prospectMonth===m?'':m}))}
-                              className={`px-2 py-1 text-xs border font-bold transition ${statusData.prospectMonth===m?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{m}</button>
-                          ))}
-                        </div>
-                      </div>
+                      {statusData.customerStatus !== '契約' && (
+                        <>
+                          <div>
+                            <p className="text-xs text-slate-400 mb-1">ランク</p>
+                            <div className="flex gap-1">
+                              {['A','B','C','D'].map(r => (
+                                <button key={r} type="button" onClick={() => setStatusData(p => ({...p, rank: p.rank===r?'':r}))}
+                                  className={`w-9 h-9 text-sm border font-bold transition ${statusData.rank===r?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{r}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-400 mb-1">見込み月</p>
+                            <div className="flex gap-1 flex-wrap">
+                              {['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'].map(m => (
+                                <button key={m} type="button" onClick={() => setStatusData(p => ({...p, prospectMonth: p.prospectMonth===m?'':m}))}
+                                  className={`px-2 py-1 text-xs border font-bold transition ${statusData.prospectMonth===m?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{m}</button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
                       {statusData.customerStatus === '契約' && (
-                        <div>
-                          <p className="text-xs text-slate-400 mb-1">契約日</p>
-                          <input type="date" value={statusData.contractDate || ''} onChange={e => setStatusData(p => ({...p, contractDate: e.target.value}))}
-                            className="border border-slate-300 px-2 py-1 text-sm outline-none" />
+                        <div className="space-y-2">
+                          <div>
+                            <p className="text-xs text-slate-400 mb-1">契約月</p>
+                            <div className="flex gap-1 flex-wrap">
+                              {['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'].map(m => (
+                                <button key={m} type="button" onClick={() => setStatusData(p => ({...p, contractMonth: p.contractMonth===m?'':m}))}
+                                  className={`px-2 py-1 text-xs border font-bold transition ${statusData.contractMonth===m?'bg-slate-700 text-white border-slate-700':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{m}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-400 mb-1">契約日</p>
+                            <input type="date" value={statusData.contractDate || ''} onChange={e => setStatusData(p => ({...p, contractDate: e.target.value}))}
+                              className="border border-slate-300 px-2 py-1 text-sm outline-none" />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -7819,11 +7862,6 @@
           const [dbLoading, setDbLoading] = useState(false);
           const [returnScreen, setReturnScreen] = useState('list');
 
-          useEffect(() => {
-            loadKarteCustomers();
-            loadKarteBranches();
-          }, []);
-
           const fromDB = (key, val) => {
             let status = val.status || emptyStatus();
             if ('rankA' in status || 'rankB' in status || 'applyBuilding' in status) {
@@ -7842,27 +7880,29 @@
             };
           };
 
-          const loadKarteCustomers = async () => {
+          useEffect(() => {
             setDbLoading(true);
-            const snap = await database.ref('karte/customers').once('value');
-            if (snap.exists()) {
-              const arr = [];
-              snap.forEach(child => arr.push(fromDB(child.key, child.val())));
-              arr.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-              setCustomers(arr);
-            } else { setCustomers([]); }
-            setDbLoading(false);
-          };
-
-          const loadKarteBranches = async () => {
-            const snap = await database.ref('karte/branches').once('value');
-            if (snap.exists()) {
-              const arr = [];
-              snap.forEach(child => arr.push({ id: child.key, ...child.val() }));
-              arr.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-              setBranches(arr);
-            } else { setBranches([]); }
-          };
+            const customersRef = database.ref('karte/customers');
+            customersRef.on('value', snap => {
+              if (snap.exists()) {
+                const arr = [];
+                snap.forEach(child => arr.push(fromDB(child.key, child.val())));
+                arr.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+                setCustomers(arr);
+              } else { setCustomers([]); }
+              setDbLoading(false);
+            });
+            const branchesRef = database.ref('karte/branches');
+            branchesRef.on('value', snap => {
+              if (snap.exists()) {
+                const arr = [];
+                snap.forEach(child => arr.push({ id: child.key, ...child.val() }));
+                arr.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+                setBranches(arr);
+              } else { setBranches([]); }
+            });
+            return () => { customersRef.off(); branchesRef.off(); };
+          }, []);
 
           const handleAddBranch = async (name) => {
             try {
@@ -7932,7 +7972,7 @@
 
           return (
             <>
-              {showNewModal && <KNewCustomerModal onClose={() => setShowNewModal(false)} onCreate={handleCreate} />}
+              {showNewModal && <KNewCustomerModal onClose={() => setShowNewModal(false)} onCreate={handleCreate} branches={branches} />}
               {screen === 'list' && <KCustomerList customers={activeCustomers} onNew={() => setShowNewModal(true)} onEdit={handleEdit} onDelete={handleDelete} dbLoading={dbLoading} branches={branches} onAddBranch={handleAddBranch} onDeleteBranch={handleDeleteBranch} contractCount={contractedCustomers.length} onGoContracts={() => setScreen('contracts')} />}
               {screen === 'contracts' && <KContractList customers={contractedCustomers} onEdit={(id) => handleEdit(id, 'contracts')} onBack={() => setScreen('list')} />}
               {screen === 'edit' && currentCustomer && <KKarteEditor customer={currentCustomer} onBack={handleBack} onSave={handleSave} onUpdateInfo={handleUpdateInfo} onUpdateStatus={handleUpdateStatus} />}
