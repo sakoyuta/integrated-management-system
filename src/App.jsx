@@ -7832,19 +7832,23 @@ import { marked } from 'marked';
             });
             const DEFAULT_BRANCHES = ['豊中オフィス', '奈良オフィス', '京都オフィス', '神戸オフィス'];
             const branchesRef = database.ref('karte/branches');
+            let seeded = false;
             branchesRef.on('value', snap => {
+              const arr = [];
               if (snap.exists()) {
-                const arr = [];
                 snap.forEach(child => arr.push({ id: child.key, ...child.val() }));
                 arr.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-                setBranches(arr);
-              } else {
-                setBranches([]);
-                // 初回のみデフォルト拠点を自動登録
-                const now = new Date().toISOString();
+              }
+              setBranches(arr);
+              // 初回のみ: 不足しているデフォルト拠点を追加
+              if (!seeded) {
+                seeded = true;
+                const existingNames = arr.map(b => b.name);
                 DEFAULT_BRANCHES.forEach((name, i) => {
-                  const ref = database.ref('karte/branches').push();
-                  ref.set({ name, createdAt: new Date(Date.now() + i).toISOString() });
+                  if (!existingNames.includes(name)) {
+                    const ref = database.ref('karte/branches').push();
+                    ref.set({ name, createdAt: new Date(Date.now() + i).toISOString() });
+                  }
                 });
               }
             });
