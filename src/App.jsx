@@ -7845,15 +7845,13 @@ import { marked } from 'marked';
           const handleAddBranch = async (name) => {
             try {
               const now = new Date().toISOString();
-              const ref = await database.ref('karte/branches').push({ name, createdAt: now });
-              setBranches(prev => [...prev, { id: ref.key, name, createdAt: now }]);
+              await database.ref('karte/branches').push({ name, createdAt: now });
               return null;
             } catch (e) { return e.message; }
           };
 
           const handleDeleteBranch = async (id) => {
             await database.ref('karte/branches/' + id).remove();
-            setBranches(prev => prev.filter(b => b.id !== id));
           };
 
           const handleCreate = async ({ staffName, belong, customerName }) => {
