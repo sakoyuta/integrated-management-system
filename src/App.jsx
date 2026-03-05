@@ -7033,19 +7033,19 @@ import { marked } from 'marked';
           };
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4">
-                <div className="px-6 pt-6 pb-4 border-b border-slate-200">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 flex flex-col max-h-[85vh]">
+                <div className="px-6 pt-6 pb-4 border-b border-slate-200 flex-shrink-0">
                   <h2 className="text-lg font-black text-slate-800">拠点の管理</h2>
                   <p className="text-xs text-slate-400 mt-0.5">拠点の追加・削除ができます</p>
                 </div>
-                <div className="px-6 py-4 border-b border-slate-100">
+                <div className="px-6 py-4 border-b border-slate-100 flex-shrink-0">
                   <div className="flex gap-2">
                     <input className="flex-1 p-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="新しい拠点名を入力..." value={newName} onChange={e => { setNewName(e.target.value); setAddError(''); }} onKeyDown={e => e.key === 'Enter' && handleAdd()} />
                     <button onClick={handleAdd} disabled={!newName.trim() || loading} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition">{loading ? '...' : '追加'}</button>
                   </div>
                   {addError && <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2"><p className="text-red-600 text-xs font-bold">{addError}</p></div>}
                 </div>
-                <div className="px-6 py-4 max-h-64 overflow-y-auto">
+                <div className="px-6 py-4 overflow-y-auto flex-1">
                   {branches.length === 0 ? <p className="text-center text-slate-400 text-sm py-4">拠点が登録されていません</p> : (
                     <ul className="space-y-2">
                       {branches.map(b => (
@@ -7064,7 +7064,7 @@ import { marked } from 'marked';
                     </ul>
                   )}
                 </div>
-                <div className="px-6 pb-6"><button onClick={onClose} className="w-full py-3 border border-slate-300 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition">閉じる</button></div>
+                <div className="px-6 pb-6 flex-shrink-0 border-t border-slate-100 pt-4"><button onClick={onClose} className="w-full py-3 border border-slate-300 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition">閉じる</button></div>
               </div>
             </div>
           );
@@ -7911,9 +7911,6 @@ import { marked } from 'marked';
 
           return (
             <>
-              <div style={{position:'fixed',bottom:8,right:8,background:'rgba(0,0,0,0.75)',color:'white',fontSize:11,padding:'4px 8px',borderRadius:4,zIndex:9999,pointerEvents:'none'}}>
-                screen:{screen} | customers:{customers.length} | id:{currentId||'none'} | loading:{String(dbLoading)}
-              </div>
               {showNewModal && <KNewCustomerModal onClose={() => setShowNewModal(false)} onCreate={handleCreate} branches={branches} />}
               {screen === 'list' && <KCustomerList customers={activeCustomers} onNew={() => setShowNewModal(true)} onEdit={handleEdit} onDelete={handleDelete} dbLoading={dbLoading} branches={branches} onAddBranch={handleAddBranch} onDeleteBranch={handleDeleteBranch} contractCount={contractedCustomers.length} onGoContracts={() => setScreen('contracts')} />}
               {screen === 'contracts' && <KContractList customers={contractedCustomers} onEdit={(id) => handleEdit(id, 'contracts')} onBack={() => setScreen('list')} onDelete={handleDelete} />}
